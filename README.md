@@ -468,3 +468,6 @@ docker run -d --name interviewos-notifications --no-healthcheck \
 | `type "..." does not exist` or missing column in tests | The test database is behind. `alembic upgrade head` against that database |
 | `permission denied to create extension "btree_gist"` | Enable the extension as a superuser first, then run the migration |
 | Backend container restarts in a loop | `docker compose logs backend`; usually a failed migration or a bad `DATABASE_URL` (use host `postgres`, not `localhost`, inside Compose) |
+
+#Contributors:
+              Developer team!
