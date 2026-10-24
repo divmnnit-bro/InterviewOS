@@ -1,0 +1,91 @@
+# InterviewOS local stack.
+#
+#   docker compose up --build              # PostgreSQL + API on http://localhost:8000 (docs at /docs)
+#   docker compose up -d postgres          # database only, for running the API/tests natively
+#   docker compose --profile worker up     # also start the notification delivery worker
+#
+# Every ${VAR:-default} below can be overridden from the shell or from a `.env` file placed
+# NEXT TO THIS FILE (not backend/.env, which is for running the API outside Docker).
+#
+# This file is for development: it bind-mounts the source and runs Uvicorn with --reload.
+# For production, build backend/Dockerfile and run it without the mount and --reload, with
+# ENVIRONMENT=production and a real SECRET_KEY (see README).
+name: interviewos
+
+x-backend-environment: &backend-environment
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  # The host name is the Compose service name, not localhost.
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-interviewos}
+  # The app refuses the development secret whenever ENVIRONMENT is not "development".
+  SECRET_KEY: ${SECRET_KEY:-dev-only-insecure-secret-change-me}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+  # Bind mounts on Docker Desktop (macOS/Windows) often miss file-change events.
+  # Set this to true if --reload does not notice your edits.
+  WATCHFILES_FORCE_POLLING: ${WATCHFILES_FORCE_POLLING:-false}
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: interviewos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-interviewos}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - interviewos-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-interviewos}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: interviewos-backend:dev
+    container_name: interviewos-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *backend-environment
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Source mounted over the image's copy so edits reload the server.
+      - ./backend:/app
+    # Same as the image's default command, plus --reload for development.
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Retries pending/failed notifications. Off by default; enable with `--profile worker`.
+  notifications:
+    profiles: ["worker"]
+    image: interviewos-backend:dev
+    container_name: interviewos-notifications
+    restart: unless-stopped
+    depends_on:
+      backend:
+        # The backend is healthy only after its migrations have run.
+        condition: service_healthy
+    environment:
+      <<: *backend-environment
+    volumes:
+      - ./backend:/app
+    command: ["python", "-m", "app.scripts.run_notifications"]
+    # The image's HEALTHCHECK probes the web server, which this container does not run.
+    healthcheck:
+      disable: true
+
+volumes:
+  interviewos-pgdata:
