@@ -123,6 +123,10 @@ Read from environment variables or `backend/.env` (environment variables win). D
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_ECHO` | `10` / `20` / `false` | Connection pool and SQL logging |
 | `SCHEDULER_MAX_TIME_LIMIT_SECONDS` | `60` | Upper bound on the solver time a client may request |
 | `SCHEDULER_MAX_WORKERS` | `8` | Upper bound on CP-SAT search workers a client may request |
+<<<<<<< HEAD
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Frontend origins allowed to call the API, comma-separated. Empty disables CORS |
+=======
+>>>>>>> 8136b20f43f8a14c8c87bbe0b298e6f4acc0f56d
 
 Docker Compose only: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` (host port, default 5432),
 `BACKEND_PORT` (host port, default 8000), `WATCHFILES_FORCE_POLLING`.
@@ -415,7 +419,11 @@ Authenticated routes need `Authorization: Bearer <token>`. Errors raised by the 
 - Coordinator console: drive setup, proposal review with explanations, rescue preview, pipeline board.
 - Candidate pages: availability entry and the self-booking page that the booking-link `path` points at.
 - Interviewer pages: availability, assigned interviews, evaluation form.
+<<<<<<< HEAD
+- CORS is configured: set `CORS_ORIGINS` (comma-separated) to the frontend's address. Defaults allow `http://localhost:3000` and `http://localhost:5173`.
+=======
 - The API has **no CORS configuration**; a browser frontend on another origin needs it added in `app/main.py`.
+>>>>>>> 8136b20f43f8a14c8c87bbe0b298e6f4acc0f56d
 
 **Backend gaps:**
 
@@ -468,6 +476,9 @@ docker run -d --name interviewos-notifications --no-healthcheck \
 | `type "..." does not exist` or missing column in tests | The test database is behind. `alembic upgrade head` against that database |
 | `permission denied to create extension "btree_gist"` | Enable the extension as a superuser first, then run the migration |
 | Backend container restarts in a loop | `docker compose logs backend`; usually a failed migration or a bad `DATABASE_URL` (use host `postgres`, not `localhost`, inside Compose) |
+<<<<<<< HEAD
+=======
 
 #Contributors:
               Developer team!
+>>>>>>> 8136b20f43f8a14c8c87bbe0b298e6f4acc0f56d

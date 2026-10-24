@@ -19,6 +19,10 @@ x-backend-environment: &backend-environment
   # The app refuses the development secret whenever ENVIRONMENT is not "development".
   SECRET_KEY: ${SECRET_KEY:-dev-only-insecure-secret-change-me}
   ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+<<<<<<< HEAD
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+=======
+>>>>>>> 8136b20f43f8a14c8c87bbe0b298e6f4acc0f56d
   DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
   DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
   # Bind mounts on Docker Desktop (macOS/Windows) often miss file-change events.
