@@ -1,0 +1,22 @@
+# Keep secrets, local environments and caches out of the build context and the image.
+.env
+.env.*
+!.env.example
+
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# The Dockerfile itself is not needed inside the image.
+Dockerfile
+.dockerignore
