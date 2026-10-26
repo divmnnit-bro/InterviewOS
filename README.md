@@ -40,12 +40,28 @@ closes), Ripple Rescue repairs the schedule with the fewest possible changes.
 | Services | `backend/app/services/` | Scheduling, booking, rescue, evaluations, pipeline, notifications, `.ics`. Services decide when to commit |
 | Scheduler | `backend/app/scheduler/` | **No database, web or auth imports.** Plain dataclasses in, a proposed schedule out |
 | Models / DB | `backend/app/models/`, `backend/app/db/` | 14 tables, enums stored as their lowercase values |
-| Migrations | `backend/alembic/versions/` | `0001` to `0004` |
+| Migrations | `backend/alembic/versions/` | `0001` to `0006` |
 | Scripts | `backend/app/scripts/` | `seed_demo`, `create_coordinator`, `run_notifications` |
 | Benchmarks | `backend/benchmarks/` | Scale benchmark for the scheduler |
 | Tests | `backend/tests/`, `frontend/src/test/` | Backend pure-logic/API tests and Frontend Vitest/Playwright tests |
 
 Stack: React 18, Vite 6, TypeScript strict, TailwindCSS, TanStack Query, GSAP, Python 3.12+, FastAPI, SQLAlchemy 2.0, Alembic, psycopg 3, Pydantic 2, OR-Tools CP-SAT, PostgreSQL 16.
+
+### Dependency and licensing review (2026-10-27)
+
+No new runtime dependency was needed for these changes. The versions below are the upstream releases checked on this date, not a request to upgrade the app. Existing major versions stay in place because the current frontend build and backend tests pass; Python requirements are minimum ranges rather than a complete lockfile, so deployment should use a resolved, tested environment.
+
+| Dependency | Upstream release checked | Upstream project / maintainer | License and decision |
+|---|---:|---|---|
+| React (app uses 18.x) | 19.3.1 | React Team | MIT; keep the existing major version for this change |
+| FastAPI (`>=0.115`) | 0.161.1 | FastAPI project | MIT; no upgrade needed for these routes |
+| Pydantic (`>=2.8`) | 2.13.x stable line | Pydantic project | MIT; keep v2 schemas |
+| OR-Tools (`>=9.10`) | 9.15 | Google OR-Tools | Apache-2.0; keep the existing CP-SAT integration |
+| PostgreSQL (Compose uses 16) | 16 remains supported | PostgreSQL Global Development Group | PostgreSQL License; keep the configured major version |
+| pytest (`>=8.0`) | 9.1.1 | pytest-dev | MIT; keep the tested range |
+| FullCalendar | Not installed | FullCalendar project | Standard is MIT; Premium resource timelines require a paid commercial license, so keep the existing custom scheduling views |
+
+The Python lower bounds are in `backend/requirements.txt`; the frontend lockfile records exact npm resolutions. Upstream release, license, support, and pricing details: [React releases and license](https://github.com/facebook/react/releases), [FastAPI releases and license](https://github.com/fastapi/fastapi), [Pydantic releases and license](https://github.com/pydantic/pydantic), [OR-Tools releases and license](https://github.com/google/or-tools), [PostgreSQL release support](https://www.postgresql.org/support/versioning/) and [license](https://www.postgresql.org/about/licence/), [pytest releases and license](https://github.com/pytest-dev/pytest), and [FullCalendar licensing and pricing](https://fullcalendar.io/license).
 
 ---
 
@@ -134,6 +150,9 @@ Read from environment variables or `backend/.env` (environment variables win). D
 | `SCHEDULER_MAX_TIME_LIMIT_SECONDS` | `60` | Upper bound on the solver time a client may request |
 | `SCHEDULER_MAX_WORKERS` | `8` | Upper bound on CP-SAT search workers a client may request |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Frontend origins allowed to call the API, comma-separated. Empty disables CORS |
+| `SMTP_HOST` / `SMTP_FROM` | unset | Optional email alerts. Email rows are queued only when both are set; configure TLS or SSL and credentials below if the SMTP server requires them |
+| `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` | `587` / unset / unset | Optional SMTP connection settings; secrets belong in environment configuration, never source control |
+| `SMTP_USE_SSL` / `SMTP_STARTTLS` / `SMTP_TIMEOUT_SECONDS` | `false` / `true` / `10` | Encrypted SMTP transport and connection timeout |
 
 
 Docker Compose only: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` (host port, default 5432),
@@ -161,7 +180,9 @@ alembic revision --autogenerate -m "describe the change"   # after editing a mod
 | `0001` | Initial schema, `btree_gist`, the exclusion constraints that block double booking |
 | `0002` | `room_availabilities`, `recruitment_drives.timezone` (what "a day" means for daily limits) |
 | `0003` | Per-drive scheduling rules: slot grid, interviewer rest, minimum gap between rounds |
-| `0004` | `evaluations.recommendation` (`strong_hire`, `hire`, `no_hire`, `strong_no_hire`) |`r`n| `0005` | AI interview kits, background-job tracking, advanced scheduling quality and analytics support |
+| `0004` | `evaluations.recommendation` (`strong_hire`, `hire`, `no_hire`, `strong_no_hire`) |
+| `0005` | AI interview kits, background-job tracking, advanced scheduling quality and analytics support |
+| `0006` | Structured MCQs and competency coverage on saved AI interview kits |
 
 `0001` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which needs a PostgreSQL role allowed to create extensions
 (the `postgres` superuser in the Compose database is). On managed PostgreSQL, enable `btree_gist` first.
@@ -332,7 +353,7 @@ so they cannot act as logins, and login tokens cannot open booking links.
 
 **Notifications** are written after the booking commits and never fail it. `run_notifications` creates any that were missed
 (for example after a crash between commit and notify) and retries pending or failed rows with backoff, up to 5 attempts,
-using `FOR UPDATE SKIP LOCKED`, so several workers are safe. Only in-app delivery is wired.
+using `FOR UPDATE SKIP LOCKED`, so several workers are safe. In-app alerts work without external configuration. Optional email alerts use Python's standard-library SMTP client only when both `SMTP_HOST` and `SMTP_FROM` are configured; a delivery failure never rolls back a booking.
 
 **Ripple Rescue** (`app/services/rescue.py`, `app/scheduler/rescue.py`). Priority: keep every interview scheduled, then change as
 little as possible. A candidate-visible change (time or room) costs far more than a panel swap, and small time shifts beat big
@@ -452,16 +473,18 @@ All frontend requirements specified across F1 through F8 are fully implemented a
 - **F3: Availability Matrix**: 7-day interactive week calendar with hour grid, window overlap auto-merging, drive-window background boundary clipping, whole-drive room availability banner, and interviewer profile card.
 - **F4: Scheduling Console**: Dual timeline views (by Room & by Interviewer) with 30-min block scaling, CP-SAT solver run, daily workload counters vs capacity, explain unscheduled drawer with verified fixes, compare-and-swap publish with 409 stale version detection, and .ics invitation downloads.
 - **F5: Candidate Area & Self-Booking**: Coordinator booking links generator with TTL, public self-booking page (`/book/:token`) with local timezone day-grouping, idempotent confirmation (`Idempotency-Key` header), conflict handling, and Candidate Dashboard with strict score isolation.
-- **F6: Interviewer Area**: My Interviews agenda with .ics export, real rubric criteria sliders (0–10) with live average score, recommendation selector, 201 Created vs 200 Revised detection, start-time submission gating, and anti-anchoring colleague feedback lock.
+- **F6: Interviewer Area**: My Interviews agenda with authenticated .ics downloads, unbiased unrated criteria (0–10), live average score, backend-aligned recommendations, per-interviewer pending-feedback state, start-time submission gating, and anti-anchoring colleague feedback lock.
 - **F7: Pipeline & Ripple Rescue**: Kanban board per stage, Candidate Dossier modal, progression decisions (Advance/Reject) with audited override justification, and Ripple Rescue disruption console (disruption form, before/after move diff, collateral vs direct impact categorization, atomic apply with version fingerprint).
 - **F8: Production Polish & Containerization**: Multi-stage Dockerfile with Nginx SPA fallback, `docker-compose.yml` frontend service, demo database seed script (`backend/app/scripts/seed_demo.py`), route code-splitting, bundle optimization, and Playwright end-to-end demo story.
 
 **Backend gaps / planned extensions:**
 - Interviewer skills and daily capacity can be set only when the user is created (`POST /users`); there is no endpoint to edit them later.
-- Pass rules other than `min_score` (other rule types do not block advancement).
-- Email delivery via external SMTP/SES (in-app notification delivery exists in `services/notifications.py`).
+- Only the `min_score` pass rule is implemented; unsupported rule types are rejected at stage creation/update and cannot silently pass a candidate.
+- Email delivery is optional and uses standard-library SMTP when configured; without `SMTP_HOST` and `SMTP_FROM`, only in-app notifications are queued.
 - Automatic drive status transitions to `in_progress` and `completed` as rounds start and end.
 - Rate limiting on public booking links and login endpoints.
+
+The coordinator dashboard uses database-backed counts, interview schedules, recent audit action labels, interviewer workload, and stage conversion. Its activity feed deliberately omits audit details and free-text feedback. AI interview kits are saved as drafts; coordinators can edit and save question text, MCQs, answer keys, and competency coverage before using them. Raw job descriptions are used only in local deterministic generation and are not forwarded to external AI providers.
 
 ---
 

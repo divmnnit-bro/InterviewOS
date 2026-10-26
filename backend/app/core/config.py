@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     AI_API_BASE: str | None = None
     AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
 
+    # Optional SMTP delivery. No email is queued unless a host and sender are configured.
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str | None = None
+    SMTP_USE_SSL: bool = False
+    SMTP_STARTTLS: bool = True
+    SMTP_TIMEOUT_SECONDS: float = 10.0
+
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 120
 
@@ -50,6 +60,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip().rstrip("/") for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def email_delivery_configured(self) -> bool:
+        return bool(self.SMTP_HOST and self.SMTP_FROM)
 
     @model_validator(mode="after")
     def _require_real_secret_outside_dev(self) -> "Settings":

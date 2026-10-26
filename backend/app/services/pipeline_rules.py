@@ -5,6 +5,7 @@ Kept apart from the services so the rules can be tested on their own.
 from __future__ import annotations
 
 from enum import Enum
+import math
 from typing import Any
 
 
@@ -65,12 +66,35 @@ def decision_blockers(
             "detail": (f"{missing} of {len(panel)} panel members have not submitted feedback."
                        if panel else "The interview has no active panel members."),
         })
-    if rule_met(rule, avg) is False:
+    if rule and rule.get("type") != "min_score":
+        blockers.append({
+            "code": "unsupported_rule",
+            "detail": "This stage uses an unsupported pass rule; configure a supported rule or record a justified override.",
+        })
+    elif rule and rule_met(rule, avg) is None and avg is not None:
+        blockers.append({
+            "code": "invalid_rule",
+            "detail": "This stage's minimum-score rule is invalid; correct the rule or record a justified override.",
+        })
+    elif rule_met(rule, avg) is False:
         blockers.append({
             "code": "rule_not_met",
             "detail": f"Average score {avg} is below the round's minimum of {rule['min_score']}.",
         })
     return blockers
+
+
+def validate_pass_rule(rule: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Validate stage rules at the API boundary; only min_score is implemented today."""
+    if rule is None:
+        return None
+    if rule.get("type") != "min_score":
+        raise ValueError("Only the min_score pass rule is supported")
+    threshold = rule.get("min_score")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) \
+            or not math.isfinite(float(threshold)) or not 0 <= float(threshold) <= 10:
+        raise ValueError("min_score must be a finite number between 0 and 10")
+    return rule
 
 
 def stage_state(
