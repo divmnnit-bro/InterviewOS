@@ -1,11 +1,12 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
-    auth, booking, drives, evaluations, interviews, pipeline, rescue, rooms, schedule,
+    auth, booking, drives, evaluations, interviews, me, pipeline, rescue, rooms, schedule,
 )
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(me.router)
 api_router.include_router(drives.router)
 api_router.include_router(rooms.router)
 api_router.include_router(schedule.router)

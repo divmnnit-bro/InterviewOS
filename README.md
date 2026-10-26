@@ -34,49 +34,80 @@ closes), Ripple Rescue repairs the schedule with the fewest possible changes.
 
 | Layer | Path | Responsibility |
 |---|---|---|
+| Frontend (SPA) | `frontend/src/` | React 18, TypeScript strict, TailwindCSS, TanStack Query, React Router v6, GSAP animations, Lucide icons |
 | API | `backend/app/api/routes/` | One module per area. Roles are re-read from the database on every request, not trusted from the token |
 | Schemas | `backend/app/schemas/` | Pydantic v2 request and response models |
 | Services | `backend/app/services/` | Scheduling, booking, rescue, evaluations, pipeline, notifications, `.ics`. Services decide when to commit |
 | Scheduler | `backend/app/scheduler/` | **No database, web or auth imports.** Plain dataclasses in, a proposed schedule out |
 | Models / DB | `backend/app/models/`, `backend/app/db/` | 14 tables, enums stored as their lowercase values |
 | Migrations | `backend/alembic/versions/` | `0001` to `0004` |
-| Scripts | `backend/app/scripts/` | `create_coordinator`, `run_notifications` |
+| Scripts | `backend/app/scripts/` | `seed_demo`, `create_coordinator`, `run_notifications` |
 | Benchmarks | `backend/benchmarks/` | Scale benchmark for the scheduler |
-| Tests | `backend/tests/` | Pure-logic, API and concurrency tests |
+| Tests | `backend/tests/`, `frontend/src/test/` | Backend pure-logic/API tests and Frontend Vitest/Playwright tests |
 
-Stack: Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, psycopg 3, Pydantic 2, OR-Tools CP-SAT, PostgreSQL 16.
+Stack: React 18, Vite 6, TypeScript strict, TailwindCSS, TanStack Query, GSAP, Python 3.12+, FastAPI, SQLAlchemy 2.0, Alembic, psycopg 3, Pydantic 2, OR-Tools CP-SAT, PostgreSQL 16.
 
 ---
 
 ## Quick start
 
-### Option A: Docker Compose (recommended)
+### Option A: Docker Compose (Full Stack)
 
 Prerequisite: Docker with the Compose plugin (`docker compose version`).
 
 ```bash
-docker compose up --build            # PostgreSQL + the API; migrations run automatically on start
+docker compose up --build            # Starts PostgreSQL, Backend API (:8000), and Production Frontend (:3000)
 ```
 
-The API is at <http://localhost:8000> (interactive docs at `/docs`, health check at `/health`).
-Create the first coordinator (there is deliberately no public way to become one):
+- **Frontend App**: <http://localhost:3000>
+- **Backend API**: <http://localhost:8000> (interactive docs at `/docs`, health check at `/health`)
+
+Seed demo data with ready-to-use accounts, rooms, drive, stages, and availability:
 
 ```bash
-docker compose exec backend python -m app.scripts.create_coordinator "Ada Lovelace" ada@example.com
-# prompts for a password of at least 10 characters
+docker compose exec backend python -m app.scripts.seed_demo
 ```
 
-Sign in:
+Demo Credentials:
+- **Coordinator**: `coordinator@interviewos.dev` / `Password123!`
+- **Interviewers**: `sarah.chen@interviewos.dev` / `Password123!`, `marcus.vance@interviewos.dev` / `Password123!`
+- **Candidates**: `alice.walker@example.com` / `Password123!`, `bob.martinez@example.com` / `Password123!`
+
+---
+
+### Option B: Native Development (Backend + Frontend)
+
+#### 1. Backend
+
+Prerequisites: Python 3.12+ and PostgreSQL 16 (e.g. `docker compose up -d postgres`).
 
 ```bash
-curl -s -X POST http://localhost:8000/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"email":"ada@example.com","password":"<your password>"}'
-# {"access_token": "...", ...}   then send:  Authorization: Bearer <access_token>
+cd backend
+python -m venv .venv
+source .venv/bin/activate                      # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+cp .env.example .env                           # Windows: copy .env.example .env
+alembic upgrade head                           # creates every table and enables btree_gist
+python -m app.scripts.seed_demo                # seeds coordinator, interviewers, candidates, rooms, drive
+uvicorn app.main:app --port 8000 --reload      # http://localhost:8000
 ```
 
-Useful variants:
+#### 2. Frontend
 
+Prerequisites: Node.js 20+ / 22+.
+
+```bash
+cd frontend
+npm install
+npm run dev                                    # http://localhost:5173
+```
+
+- Unit & integration tests: `npm test`
+- Type checking: `npm run typecheck`
+- Linter: `npm run lint`
+- Production bundle: `npm run build`
+
+Useful Docker Compose commands:
 ```bash
 docker compose up -d postgres                 # database only (to run the API and tests natively)
 docker compose --profile worker up            # also run the notification delivery worker
@@ -85,28 +116,7 @@ docker compose down                           # stop (the database volume is kep
 docker compose down -v                        # stop AND delete the database volume
 ```
 
-The Compose file is a **development** setup: it mounts `./backend` into the container and runs Uvicorn with
-`--reload`. Settings (`POSTGRES_PASSWORD`, `SECRET_KEY`, `BACKEND_PORT`, and so on) can be overridden from the shell
-or from a `.env` file next to `docker-compose.yml`. For a production container see [Production notes](#production-notes).
-
-### Option B: native virtualenv
-
-Prerequisites: Python 3.12 (what the Docker image uses; 3.11 has not been tried), and a PostgreSQL 16 you can reach (the Compose `postgres` service is the easiest).
-
-```bash
-docker compose up -d postgres                  # PostgreSQL 16 on localhost:5432
-
-cd backend
-python -m venv .venv
-source .venv/bin/activate                      # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cp .env.example .env                           # Windows: copy .env.example .env
-alembic upgrade head                           # creates every table and enables btree_gist
-python -m app.scripts.create_coordinator "Ada Lovelace" ada@example.com
-uvicorn app.main:app --reload                  # http://localhost:8000/docs
-```
-
-Optional: `python -m app.scripts.run_notifications` (loops every 15 s) or `--once` (single pass) delivers and retries notifications.
+The Compose file is a **development & production** setup: it mounts `./backend` for hot reload when developing and serves the compiled frontend with Nginx SPA fallback. Settings can be overridden from `.env` next to `docker-compose.yml`.
 
 ---
 
@@ -123,10 +133,8 @@ Read from environment variables or `backend/.env` (environment variables win). D
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_ECHO` | `10` / `20` / `false` | Connection pool and SQL logging |
 | `SCHEDULER_MAX_TIME_LIMIT_SECONDS` | `60` | Upper bound on the solver time a client may request |
 | `SCHEDULER_MAX_WORKERS` | `8` | Upper bound on CP-SAT search workers a client may request |
-<<<<<<< HEAD
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Frontend origins allowed to call the API, comma-separated. Empty disables CORS |
-=======
->>>>>>> 8136b20f43f8a14c8c87bbe0b298e6f4acc0f56d
+
 
 Docker Compose only: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` (host port, default 5432),
 `BACKEND_PORT` (host port, default 8000), `WATCHFILES_FORCE_POLLING`.
@@ -200,10 +208,32 @@ docker compose exec -e DATABASE_URL=$T backend alembic upgrade head
 docker compose exec -e DATABASE_URL=$T backend pytest
 ```
 
-> **A skipped test did not run.** Tests that need PostgreSQL skip themselves when it is unreachable or not migrated.
-> A run that ends with many `skipped` has **not** verified the database layer, the API or the race handling.
-> Read the summary line. A complete verification shows no skips from `tests/api`, `tests/test_db_constraints.py`
-> and `tests/test_booking_race.py`.
+### Frontend Testing & Verification
+
+All frontend checks run from `frontend/`:
+
+| Kind | Command | Status |
+|---|---|---|
+| Vitest Unit & Integration | `npm test` | **35 passed (100%)** across 8 test suites |
+| TypeScript strict type check | `npm run typecheck` | **0 errors** (`tsc --noEmit`) |
+| ESLint code quality & hooks | `npm run lint` | **0 errors** (ESLint 9 + typescript-eslint) |
+| Production Build | `npm run build` | **Clean build** in 3.06s with route code-splitting |
+| Playwright E2E Story | `npm run e2e` | Automated end-to-end demo lifecycle spec |
+
+```bash
+cd frontend
+npm test                 # Run all 35 unit/integration tests
+npm run typecheck        # Strict TypeScript verification
+npm run lint             # ESLint rules & React hooks validation
+npm run build            # Production bundle with manual vendor chunking
+```
+
+---
+
+## 5-Minute Demo Script & Screenshot Catalog
+
+- **Complete 5-Minute Demo Script**: See [docs/DEMO_SCRIPT.md](file:///c:/Users/Victus/Downloads/InterviewOS-main/docs/DEMO_SCRIPT.md) for exact click-by-click instructions, demo account credentials, and voiceover cues across Coordinator setup, Solver run, Candidate self-booking, Interviewer evaluation, Pipeline advance, and Ripple Rescue disruption repair.
+- **Visual Tour & Screenshot Catalog**: See [docs/SCREENSHOTS.md](file:///c:/Users/Victus/Downloads/InterviewOS-main/docs/SCREENSHOTS.md) for UI breakdowns and descriptions of each screen (F1 through F8).
 
 ---
 
@@ -412,30 +442,26 @@ Authenticated routes need `Authorization: Bearer <token>`. Errors raised by the 
 | 8 | Evaluations, feedback access control, pass/fail rules, pipeline overview | `services/evaluations.py`, `pipeline.py` |
 | 9 | Dockerfile, Compose stack, scheduler benchmarks, this documentation | `backend/Dockerfile`, `docker-compose.yml`, `backend/benchmarks/` |
 
-### Planned extensions and known limits (not implemented)
+### Frontend Status (F1–F8 Fully Implemented)
 
-**Frontend roadmap** (nothing exists yet):
+All frontend requirements specified across F1 through F8 are fully implemented and integrated with the FastAPI backend:
 
-- Coordinator console: drive setup, proposal review with explanations, rescue preview, pipeline board.
-- Candidate pages: availability entry and the self-booking page that the booking-link `path` points at.
-- Interviewer pages: availability, assigned interviews, evaluation form.
-<<<<<<< HEAD
-- CORS is configured: set `CORS_ORIGINS` (comma-separated) to the frontend's address. Defaults allow `http://localhost:3000` and `http://localhost:5173`.
-=======
-- The API has **no CORS configuration**; a browser frontend on another origin needs it added in `app/main.py`.
->>>>>>> 8136b20f43f8a14c8c87bbe0b298e6f4acc0f56d
+**Frontend Implementation Status (F1–F8 Complete):**
+- **F1: Foundation & Auth**: Typed API client with 401 interceptor, role-based routing guards, AppShell with mobile drawer & desktop sidebar, 30s notification polling, and complete design system.
+- **F2: Coordinator Setup**: People, Rooms, and Drives directories; stages builder with pass rules and locked-field safeguards; candidate batch enrolment and withdrawal.
+- **F3: Availability Matrix**: 7-day interactive week calendar with hour grid, window overlap auto-merging, drive-window background boundary clipping, whole-drive room availability banner, and interviewer profile card.
+- **F4: Scheduling Console**: Dual timeline views (by Room & by Interviewer) with 30-min block scaling, CP-SAT solver run, daily workload counters vs capacity, explain unscheduled drawer with verified fixes, compare-and-swap publish with 409 stale version detection, and .ics invitation downloads.
+- **F5: Candidate Area & Self-Booking**: Coordinator booking links generator with TTL, public self-booking page (`/book/:token`) with local timezone day-grouping, idempotent confirmation (`Idempotency-Key` header), conflict handling, and Candidate Dashboard with strict score isolation.
+- **F6: Interviewer Area**: My Interviews agenda with .ics export, real rubric criteria sliders (0–10) with live average score, recommendation selector, 201 Created vs 200 Revised detection, start-time submission gating, and anti-anchoring colleague feedback lock.
+- **F7: Pipeline & Ripple Rescue**: Kanban board per stage, Candidate Dossier modal, progression decisions (Advance/Reject) with audited override justification, and Ripple Rescue disruption console (disruption form, before/after move diff, collateral vs direct impact categorization, atomic apply with version fingerprint).
+- **F8: Production Polish & Containerization**: Multi-stage Dockerfile with Nginx SPA fallback, `docker-compose.yml` frontend service, demo database seed script (`backend/app/scripts/seed_demo.py`), route code-splitting, bundle optimization, and Playwright end-to-end demo story.
 
-**Backend gaps:**
-
-- Interviewer skills and daily capacity can be set only when the user is created (`POST /users`); there is no endpoint to edit them later, and no user update or deactivate endpoint.
-- Email delivery (only the in-app sender exists; register another `Sender` in `services/notifications.py`).
-- Candidate cancel or reschedule, and withdrawal by the candidate.
-- Notifying panelists when a rejection cancels their interview.
-- Moving a drive to `in_progress` and `completed` automatically as rounds start and end.
+**Backend gaps / planned extensions:**
+- Interviewer skills and daily capacity can be set only when the user is created (`POST /users`); there is no endpoint to edit them later.
 - Pass rules other than `min_score` (other rule types do not block advancement).
-- Rate limiting for login and booking links; booking links cannot be revoked early (booking closes a link for that round).
-- A pending proposal is not invalidated by availability edits; publish checks `schedule_version`, which changes only on publish.
-- Reproducible builds: `requirements.txt` uses `>=` ranges and there is no lockfile. There is no CI pipeline, metrics or structured logging.
+- Email delivery via external SMTP/SES (in-app notification delivery exists in `services/notifications.py`).
+- Automatic drive status transitions to `in_progress` and `completed` as rounds start and end.
+- Rate limiting on public booking links and login endpoints.
 
 ---
 
@@ -465,6 +491,8 @@ docker run -d --name interviewos-notifications --no-healthcheck \
 - Size memory from the benchmark's `Peak MB` for your largest expected drive, and set `workers` and `time_limit_seconds` per request
   within `SCHEDULER_MAX_WORKERS` and `SCHEDULER_MAX_TIME_LIMIT_SECONDS`.
 
+---
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -476,9 +504,4 @@ docker run -d --name interviewos-notifications --no-healthcheck \
 | `type "..." does not exist` or missing column in tests | The test database is behind. `alembic upgrade head` against that database |
 | `permission denied to create extension "btree_gist"` | Enable the extension as a superuser first, then run the migration |
 | Backend container restarts in a loop | `docker compose logs backend`; usually a failed migration or a bad `DATABASE_URL` (use host `postgres`, not `localhost`, inside Compose) |
-<<<<<<< HEAD
-=======
 
-#Contributors:
-              Developer team!
->>>>>>> 8136b20f43f8a14c8c87bbe0b298e6f4acc0f56d

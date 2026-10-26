@@ -49,3 +49,16 @@ class UserOut(ORMModel):
     email: str
     role: UserRole
     status: UserStatus
+
+
+class UserDetailOut(ORMModel):
+    id: uuid.UUID
+    name: str
+    email: str
+    role: UserRole
+    status: UserStatus
+    skills: list[str] = Field(default_factory=list)
+    capacity: int | None = None
+    department: str | None = None
+    roll_number: str | None = None
+    branch: str | None = None

@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,6 +12,7 @@ from app.schemas.auth import (
     LoginRequest,
     RegisterCandidateRequest,
     TokenResponse,
+    UserDetailOut,
     UserOut,
 )
 
@@ -80,3 +79,44 @@ def me(user: User = Depends(get_current_user)) -> User:
 def create_user(body: CreateUserRequest, db: Session = Depends(get_db)) -> User:
     """Coordinator-only: create an interviewer, candidate or another coordinator."""
     return _create_user(db, body)
+
+
+@router.get(
+    "/users", response_model=list[UserDetailOut],
+    dependencies=[Depends(require_coordinator)],
+)
+def list_users(
+    role: UserRole | None = None,
+    status: UserStatus | None = None,
+    q: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[UserDetailOut]:
+    """Coordinator-only: list and filter users with their profile fields."""
+    stmt = select(User).order_by(User.name)
+    if role is not None:
+        stmt = stmt.where(User.role == role)
+    if status is not None:
+        stmt = stmt.where(User.status == status)
+    if q and q.strip():
+        term = f"%{q.strip().lower()}%"
+        stmt = stmt.where(or_(User.name.ilike(term), User.email.ilike(term)))
+    stmt = stmt.offset(offset).limit(limit)
+    users = list(db.scalars(stmt))
+
+    return [
+        UserDetailOut(
+            id=u.id,
+            name=u.name,
+            email=u.email,
+            role=u.role,
+            status=u.status,
+            skills=u.interviewer.skills if u.interviewer else [],
+            capacity=u.interviewer.capacity if u.interviewer else None,
+            department=u.interviewer.department if u.interviewer else None,
+            roll_number=u.candidate.roll_number if u.candidate else None,
+            branch=u.candidate.branch if u.candidate else None,
+        )
+        for u in users
+    ]

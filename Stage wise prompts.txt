@@ -1,0 +1,200 @@
+Stage wise prompts:
+## F1: Foundation and auth
+
+Execute **Stage F1 only**.
+
+1. **Project.** Create `frontend/` (Vite, React, TypeScript strict, Tailwind, React Router, TanStack Query, Vitest,
+   Testing Library, Playwright, ESLint). Scripts: `dev`, `build`, `preview`, `typecheck`, `lint`, `test`, `e2e`.
+   `.env.example` with `VITE_API_URL=http://localhost:8000`.
+2. **API client** (`src/api/client.ts`): a typed `fetch` wrapper that adds the bearer token, sends JSON, parses both error
+   shapes (`{error, message, details}` from the service layer and FastAPI's `{detail}` for 401/403/404/422), and throws a
+   typed `ApiError` (`status`, `code`, `message`, `details`). A 401 clears the session and redirects to `/login`.
+   Helper for the `Idempotency-Key` header. No auth header on the public booking calls.
+3. **Auth.** `/login` (`POST /auth/login`), `/register` (candidate sign-up, `POST /auth/register`), session restore on start
+   (`GET /auth/me`), logout. An auth context exposing the user and role.
+4. **Routing and layout.** Role-based route guards. Three areas: `/coordinator/*`, `/candidate/*`, `/interviewer/*`, plus the
+   public `/book/:token`. After login, go to the user's own area. A not-allowed page for the wrong role. An app shell with a
+   sidebar (desktop) and a drawer (phone), the user menu, and placeholder-free pages for each area's home that show real
+   data available now (for example the coordinator's drive count from `GET /drives`).
+5. **Notifications.** A bell with the unread count, a dropdown and an inbox page (`GET /notifications`,
+   `POST /notifications/{id}/read`), polling every 30 seconds.
+6. **Design system.** Buttons, inputs, selects, textareas, modal, toast, table, tabs, badge, card, spinner, empty state,
+   confirm dialog, and a form-field component that shows validation errors from 422 responses.
+7. **Tests.** API client error parsing, auth guards and redirects, session restore, 401 handling, a Playwright spec: register a
+   candidate, log in, see the candidate home, log out; and a coordinator (created through the backend script) logging in.
+
+---
+
+## F2: Coordinator setup
+
+Execute **Stage F2 only**.
+
+**Backend addition (read-only, coordinator only, with tests):** `GET /users` with filters `role`, `status`, `q`
+(name or email), and `limit`/`offset` (default 50, max 200), returning id, name, email, role, status plus the profile fields
+(interviewer `skills`, `capacity`, `department`; candidate `roll_number`, `branch`). Needed for pickers.
+
+Screens:
+1. **People.** List and filter users; create interviewer / candidate / coordinator (`POST /users`) with the right fields per
+   role (skills as tags, capacity as a number).
+2. **Rooms.** List, create, edit, activate or deactivate (`/rooms`).
+3. **Drives.** List with status badges, create, edit (`PATCH /drives/{id}`): title, description, window, timezone (an IANA
+   picker), slot minutes, interviewer buffer, round gap, and status moves (draft, collecting availability). Fields that the
+   backend locks after publishing are read-only with an explanation, and a 409 is shown clearly.
+4. **Stages** (inside a drive): add, edit, reorder by `order_index`, delete; duration, panel size, required skills, pass rule.
+   Locked once published.
+5. **Enrolment** (inside a drive): search candidates, enrol several at once (`POST /drives/{id}/candidates`), see each
+   candidate's status, withdraw one (`DELETE`).
+6. A **drive detail** page with tabs: Overview, Stages, Candidates (the later stages add Schedule, Pipeline and Rescue).
+
+Tests: forms and validation, locked-field behaviour, enrol and withdraw, the new `GET /users` backend tests, and a Playwright
+spec that sets up a full drive (an interviewer, a room, a drive with two stages, three enrolled candidates).
+
+---
+
+## F3: Availability
+
+Execute **Stage F3 only**.
+
+1. **Availability editor** (reusable component): shows a week calendar in a given timezone; add a window by dragging or by a
+   form (date, start, end), edit and delete windows, merge overlaps on save, show the drive window as a background so people
+   see what counts. Saves with `PUT /users/{id}/availability` (replaces all windows); loads with `GET`.
+2. Use it in three places: a candidate's "My availability" page, an interviewer's "My availability" page, and a coordinator
+   screen to edit anyone's availability (reached from People and from the drive's Candidates tab). Room availability for
+   coordinators (`/rooms/{id}/availability`), including the "no windows means open the whole drive" rule explained in the UI.
+3. Show, per drive, who has no availability yet (coordinator Candidates tab and People), so gaps are visible before
+   scheduling. Use only data the API already returns; if it cannot be derived without an extra call per person, make the calls in parallel with
+   caching and say so.
+4. Interviewer's own profile page showing skills and capacity (read-only; the backend has no edit endpoint, say so on the page).
+
+Tests: window maths (overlap merge, timezone and daylight-saving edges, drive-window clipping), editor interactions, save
+errors, and a Playwright spec: a candidate and an interviewer set availability, the coordinator sees it.
+
+---
+
+## F4: Scheduling console
+
+Execute **Stage F4 only**. This is the main demo screen, so give it extra care.
+
+**Backend addition (read-only, coordinator only, with tests):** `GET /drives/{id}/interviews` returning the drive's
+interviews (proposed, scheduled, confirmed, completed, cancelled, no-show) with candidate name, stage name, room name, panel
+(id and name), start and end, status and `version`; optional `status` filter. The proposal endpoints return ids only, and the
+screen needs names.
+
+Screens (new **Schedule** tab on the drive):
+1. **Run.** A "Generate schedule" button with the optional run settings (slot size, buffer, gap, time limit, workers) in an
+   advanced section (`POST .../schedule/propose`). Show progress (the solve can take up to the time limit), the solver
+   status, and how many were scheduled.
+2. **Review.** Show the pending proposal two ways: a **timeline by room** and a **timeline by interviewer** (days as tabs,
+   30-minute blocks to scale, hover or tap for candidate, stage and panel), and a table view. Highlight conflicts of nothing
+   (the checker guarantees none), but do show each interviewer's load per day against their capacity.
+3. **Unscheduled.** A panel listing everyone left out with plain-language reasons; a button runs
+   `POST .../schedule/explain` and shows the summary, best slot, blockers and each **verified fix** with how many extra
+   interviews it would schedule.
+4. **Publish / discard.** Publish sends `expected_version` from the proposal; confirm dialog showing what will happen; a 409
+   `stale_schedule_version` shows "the schedule changed, reload" and reloads. Discard the pending proposal.
+5. **Published schedule.** After publishing, the same views show the published interviews (from the new endpoint), with a
+   status badge per interview, and a button to the schedule's `.ics` per interview.
+
+Tests: timeline layout maths (positions, overlaps, day boundaries, timezone), version-conflict handling, explain rendering,
+the new endpoint's backend tests, and a Playwright spec: generate, review, publish, then generate again and see the empty
+result; also a forced stale-version publish.
+
+---
+
+## F5: Booking and the candidate area
+
+Execute **Stage F5 only**.
+
+**Backend addition (read-only, with tests):** `GET /me/interviews` for candidates and interviewers: their own interviews
+(drive, stage, room, start, end, status, panel names for the candidate view, candidate name for the interviewer view,
+`version`); and `GET /me/progress` for candidates: per drive, their enrolment status, current stage, and the **result per
+decided round only** (advanced / not selected / selected), never scores or feedback. Check how the existing pipeline stores
+decisions and reuse it; report what you found.
+
+Screens:
+1. **Coordinator: booking links.** In the drive: choose candidates (or all who still need a slot), set the link lifetime,
+   `POST /drives/{id}/booking-links`; show each link with copy and open buttons, and the skipped candidates with the reason.
+2. **Public booking page** `/book/:token` (no login): shows the candidate name, drive and round, lists the free slots grouped by
+   day in the drive's timezone with "load more" (`limit`, `after`), lets them pick and confirm
+   (`POST /booking/{token}/confirm` with a fresh `Idempotency-Key`, kept across retries of the same click). Handle every
+   outcome: 201, 200 replay, 409 `slot_unavailable` (refresh the list and say so), 422, expired or invalid link (401), already
+   booked (show the booking). After booking: a confirmation with an "Add to calendar" button (`.ics`).
+3. **Candidate dashboard:** my interviews with status and `.ics` download, my progress per round (results only), my
+   notifications, and my availability link.
+
+Tests: the idempotency-key behaviour (double click makes one booking), all error branches of the booking page, slot grouping
+across timezones, the new endpoints' backend tests (including that no score or feedback can leak), and a Playwright spec:
+coordinator issues a link, the candidate opens it logged out and books, and a second browser context trying the same slot
+gets the "slot taken" message.
+
+---
+
+## F6: Interviewer area
+
+Execute **Stage F6 only**.
+
+Screens:
+1. **My interviews:** upcoming and past, a week or agenda view, status badges, candidate name, stage, room, and the
+   `.ics` download (`GET /me/interviews`, `GET /interviews/{id}/ics`).
+2. **Evaluation form** for an interview you sat on (`POST /interviews/{id}/evaluations`): read the backend schema first and
+   render the real rubric criteria, the 0 to 10 ratings, the optional overall score, the recommendation and the feedback.
+   Open only once the interview has started (mirror the backend rule and show why it is disabled). Submit creates (201) or
+   revises (200); show which. Show validation errors from 422.
+3. **Colleagues' feedback:** `GET /interviews/{id}/evaluations`. Respect the backend rule that you see colleagues' feedback
+   only after you submit your own; show a locked state with the reason before that.
+4. Interviewer home: today's interviews, interviews still needing your evaluation, notifications, availability link.
+
+Tests: form validation and scoring maths, the locked and unlocked states, create versus revise, and a Playwright spec: an
+interviewer is assigned by the earlier flow, the interview time passes (the test controls time on the backend side the same way
+the backend tests do, or uses a drive window in the past; explain what you chose), the interviewer submits, then sees
+colleagues' feedback.
+
+---
+
+## F7: Pipeline and Ripple Rescue
+
+Execute **Stage F7 only**.
+
+Screens (new **Pipeline** and **Rescue** tabs on the drive):
+1. **Pipeline board** (`GET /drives/{id}/pipeline`): per-round counts and every candidate's state, with a status filter, as
+   columns by round (a kanban-style board plus a table switch). Each candidate card opens a side panel with their interviews
+   and every evaluation (read-only; coordinator view), the stage's pass rule and what the evaluations suggest.
+2. **Decisions.** Advance (`POST .../advance`) and reject (`POST .../reject`) with notes; the override path (`override`,
+   `override_reason`) only after the backend says evidence is missing, with a confirmation that explains it is audited.
+   Coordinators can also submit an evaluation on behalf of a panelist (`on_behalf_of`) when the backend allows it. After an
+   advance, offer "go to Schedule" to propose the next round.
+3. **Ripple Rescue.** A form to describe a disruption (interviewer out, room out, candidate out) with a resource picker and a
+   time range; **Preview** (`POST .../rescue/preview`) shows a before and after: moved interviews (what changed: time, room,
+   panel), which were directly hit and which are collateral, dropped interviews with reasons, interviews needing manual care,
+   and who will be notified. **Apply** sends `expected_version` and `plan_fingerprint`; handle `stale_schedule_version`,
+   `plan_changed` and `conflict` with a clear "preview again". A repair with nothing to change shows that.
+4. A drive **Overview** dashboard on the drive page: status, counts, the next unfinished step ("collect availability",
+   "generate schedule", "publish", "collect feedback", and so on), derived from real data.
+
+Tests: pipeline grouping and filter logic, the decision and override flows, the rescue preview rendering for every plan
+shape (moves only, drops, needs-manual, nothing to change), conflict handling, and a Playwright spec: publish, evaluate,
+advance a candidate, preview and apply a rescue after an interviewer drops out, and see the board update.
+
+---
+
+## F8: Polish and delivery
+
+Execute **Stage F8 only**.
+
+1. **Quality pass.** Review every screen on desktop and phone widths; fix layout, spacing and wording; consistent empty and
+   error states; confirm dialogs on every destructive action; no raw ids shown where a name exists; keyboard and screen-reader
+   checks (run an automated accessibility check such as axe in Playwright on each main page and fix what it finds).
+2. **Performance.** Route-level code splitting, sensible query caching, no request waterfalls on the main screens; report the
+   bundle sizes.
+3. **Delivery.** A production build served by a small container (static files behind nginx with a fallback to `index.html`
+   and a runtime-configurable API address); extend `docker-compose.yml` with a `frontend` service; the whole stack must come up
+   with `docker compose up --build`. A seed script (backend `app/scripts/`) that creates a demo coordinator, interviewers,
+   candidates, rooms and a drive so the demo starts with data.
+4. **End-to-end.** One Playwright test that runs the **whole demo story** against the real backend: coordinator sets up a
+   drive, people give availability, a schedule is generated and published, a candidate self-books, an interviewer submits
+   feedback, the coordinator advances the candidate and schedules the next round, and a rescue repairs a dropped interviewer.
+5. **Docs.** README: how to run (Docker and native), a 5-minute demo script with the exact clicks and what to say, a
+   screenshot list (capture the screenshots with Playwright and add them to `docs/`), and a clear list of what is not built.
+
+Verification: the full backend suite, all frontend tests, the Playwright suite and the production build all pass. Report the
+results and anything not verified (for example Docker, if it is not available where you run).

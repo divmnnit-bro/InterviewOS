@@ -18,14 +18,17 @@ from app.models import (
     InterviewStage,
     RecruitmentDrive,
     User,
+    InterviewStatus,
 )
 from app.models.stage import DEFAULT_PASS_RULE
 from app.schemas.drive import (
     DriveCreate,
+    DriveInterviewDetailOut,
     DriveOut,
     DriveUpdate,
     EnrollmentOut,
     EnrollRequest,
+    PanelMemberOut,
     StageCreate,
     StageOut,
     StageUpdate,
@@ -189,3 +192,48 @@ def withdraw(drive_id: uuid.UUID, candidate_id: uuid.UUID, db: Session = Depends
         raise HTTPException(status.HTTP_404_NOT_FOUND, "candidate is not enrolled in this drive")
     row.status = DriveCandidateStatus.WITHDRAWN
     db.commit()
+
+
+@router.get("/{drive_id}/interviews", response_model=list[DriveInterviewDetailOut])
+def list_drive_interviews(
+    drive_id: uuid.UUID,
+    status: InterviewStatus | None = None,
+    db: Session = Depends(get_db),
+) -> list[DriveInterviewDetailOut]:
+    """Returns all interviews for a drive, optionally filtered by status."""
+    get_drive(db, drive_id)
+    query = (
+        select(Interview)
+        .join(InterviewStage, Interview.stage_id == InterviewStage.id)
+        .where(InterviewStage.drive_id == drive_id)
+    )
+    if status is not None:
+        query = query.where(Interview.status == status)
+
+    interviews = list(db.scalars(query.order_by(Interview.start_time, Interview.id)))
+    out: list[DriveInterviewDetailOut] = []
+    for it in interviews:
+        panel_members = [
+            PanelMemberOut(id=p.interviewer.user.id, name=p.interviewer.user.name)
+            for p in it.panel
+            if p.is_active and p.interviewer and p.interviewer.user
+        ]
+        out.append(
+            DriveInterviewDetailOut(
+                id=it.id,
+                drive_id=drive_id,
+                stage_id=it.stage_id,
+                stage_name=it.stage.name if it.stage else "",
+                candidate_id=it.candidate_id,
+                candidate_name=it.candidate.user.name if (it.candidate and it.candidate.user) else "",
+                room_id=it.room_id,
+                room_name=it.room.name if it.room else None,
+                panel=panel_members,
+                start_time=it.start_time,
+                end_time=it.end_time,
+                status=it.status,
+                version=it.version,
+            )
+        )
+    return out
+
