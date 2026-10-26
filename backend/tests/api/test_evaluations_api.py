@@ -167,6 +167,25 @@ def test_panelist_submits_then_revises_their_feedback(client, db, rounds):
     assert db.scalars(select(AuditEvent).where(AuditEvent.action == "evaluation.update")).one()
 
 
+def test_my_interviews_reports_only_the_signed_in_panelists_evaluation(client, db, rounds):
+    candidate_id = rounds["candidates"][0]
+    interview = interview_of(db, candidate_id)
+    _, interviewer_headers = panelist(client, db, interview)
+
+    before = client.get("/me/interviews", headers=interviewer_headers)
+    assert before.status_code == 200
+    assert next(item for item in before.json() if item["id"] == str(interview.id))["evaluation_submitted"] is False
+
+    result = client.post(f"/interviews/{interview.id}/evaluations", headers=interviewer_headers, json=ev(score=8))
+    assert result.status_code == 201, result.text
+    after = client.get("/me/interviews", headers=interviewer_headers)
+    assert next(item for item in after.json() if item["id"] == str(interview.id))["evaluation_submitted"] is True
+
+    candidate_headers = login(client, "c0@example.com")
+    candidate_view = client.get("/me/interviews", headers=candidate_headers)
+    assert next(item for item in candidate_view.json() if item["id"] == str(interview.id))["evaluation_submitted"] is None
+
+
 def test_only_the_assigned_panel_may_submit(client, db, rounds):
     h = rounds["headers"]
     iv = interview_of(db, rounds["candidates"][0])
