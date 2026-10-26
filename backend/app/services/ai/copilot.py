@@ -37,6 +37,7 @@ from app.schemas.ai import (
     InterviewKitRequest,
     InterviewKitDraftUpdate,
     InterviewKitResponse,
+    MultipleChoiceQuestion,
     MissingFeedbackItem,
     RoundEvaluationSummary,
     SystemDesignScenario,
@@ -645,7 +646,10 @@ def generate_candidate_summary(
         recurring_weaknesses=weaknesses,
         recommendation_synthesis=rec_synthesis,
         progression_readiness=readiness,
-        disclaimer="Rule-based summary of recorded scorecards and coordinator pipeline status. The human coordinator owns all hiring decisions.",
+        disclaimer=(
+            "Rule-based summary of recorded scorecards and coordinator pipeline status. "
+            "No hiring decision is made by this summary; the human coordinator owns all hiring decisions."
+        ),
         provider_used="deterministic",
         is_ai_generated=False,
     )
