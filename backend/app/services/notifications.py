@@ -12,8 +12,11 @@ In-app rows are written already `sent`: being in the table IS delivery.
 from __future__ import annotations
 
 import logging
+import smtplib
+import ssl
 import uuid
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
@@ -26,7 +29,9 @@ from app.models import (
     Notification,
     NotificationChannel,
     NotificationStatus,
+    User,
 )
+from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +50,39 @@ class InAppSender:
 
 
 DEFAULT_SENDERS: dict[NotificationChannel, Sender] = {NotificationChannel.IN_APP: InAppSender()}
+
+
+class SMTPEmailSender:
+    """Optional standard-library SMTP sender used by the existing retry worker."""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def send(self, notification: Notification) -> None:
+        recipient = self.db.scalar(select(User.email).where(User.id == notification.user_id))
+        if not recipient:
+            raise ValueError("notification recipient is unavailable")
+        message = EmailMessage()
+        message["Subject"] = notification.title
+        message["From"] = settings.SMTP_FROM
+        message["To"] = recipient
+        message.set_content(notification.message)
+
+        if settings.SMTP_USE_SSL:
+            connection = smtplib.SMTP_SSL(
+                settings.SMTP_HOST, settings.SMTP_PORT,
+                timeout=settings.SMTP_TIMEOUT_SECONDS, context=ssl.create_default_context(),
+            )
+        else:
+            connection = smtplib.SMTP(
+                settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS,
+            )
+        with connection as server:
+            if settings.SMTP_STARTTLS and not settings.SMTP_USE_SSL:
+                server.starttls(context=ssl.create_default_context())
+            if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
+                server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+            server.send_message(message)
 
 
 def _lock_interview_notifications(db: Session, interview_id: uuid.UUID) -> None:
@@ -70,24 +108,28 @@ def notify_booking_confirmed(db: Session, interview_id: uuid.UUID) -> bool:
                 recipients[pa.interviewer_id] = (
                     "New interview on your calendar",
                     f"You are on the panel for a {iv.stage.name} interview on {when} ({tz.key}), room: {room}.")
-        already = set(db.scalars(
-            select(Notification.user_id).where(
+        already = set(db.execute(
+            select(Notification.user_id, Notification.channel).where(
                 Notification.type == BOOKING_CONFIRMED,
-                Notification.channel == NotificationChannel.IN_APP,
+                Notification.channel.in_((NotificationChannel.IN_APP, NotificationChannel.EMAIL)),
                 Notification.payload["interview_id"].as_string() == str(iv.id),
             )
-        ))
+        ).all())
         now = datetime.now(timezone.utc)
         for uid, (title, message) in recipients.items():
-            if uid in already:
-                continue
-            db.add(Notification(
-                user_id=uid, type=BOOKING_CONFIRMED, title=title, message=message,
-                payload={"interview_id": str(iv.id), "start": iv.start_time.isoformat(),
-                         "end": iv.end_time.isoformat()},
-                channel=NotificationChannel.IN_APP, status=NotificationStatus.SENT,
-                attempts=1, sent_at=now,
-            ))
+            payload = {"interview_id": str(iv.id), "start": iv.start_time.isoformat(), "end": iv.end_time.isoformat()}
+            if (uid, NotificationChannel.IN_APP) not in already:
+                db.add(Notification(
+                    user_id=uid, type=BOOKING_CONFIRMED, title=title, message=message,
+                    payload=payload, channel=NotificationChannel.IN_APP,
+                    status=NotificationStatus.SENT, attempts=1, sent_at=now,
+                ))
+            if settings.email_delivery_configured and (uid, NotificationChannel.EMAIL) not in already:
+                db.add(Notification(
+                    user_id=uid, type=BOOKING_CONFIRMED, title=title, message=message,
+                    payload=payload, channel=NotificationChannel.EMAIL,
+                    status=NotificationStatus.PENDING, attempts=0,
+                ))
         db.commit()
         return True
     except Exception:
@@ -123,7 +165,10 @@ def deliver_pending(
     now: datetime | None = None, batch: int = 50, max_attempts: int = MAX_ATTEMPTS,
 ) -> dict[str, int]:
     """Try to send pending/failed notifications. Returns counts. Safe to run from several workers."""
-    senders = DEFAULT_SENDERS if senders is None else senders
+    if senders is None:
+        senders = dict(DEFAULT_SENDERS)
+        if settings.email_delivery_configured:
+            senders[NotificationChannel.EMAIL] = SMTPEmailSender(db)
     now = now or datetime.now(timezone.utc)
     stats = {"sent": 0, "failed": 0, "waiting": 0}
     if not senders:

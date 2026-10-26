@@ -4,13 +4,13 @@ import {
   Calendar,
   Clock,
   Building,
-  Download,
   Award,
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { Card, Button, Badge, Spinner } from '@/components/ui';
 import { formatTimeUTC, groupByDay } from '@/lib/timelineMath';
 import { EvaluationModal } from '@/components/interviewer/EvaluationModal';
+import { CalendarDownloadButton } from '@/components/schedule/CalendarDownloadButton';
 
 export interface MyInterview {
   id: string;
@@ -25,6 +25,7 @@ export interface MyInterview {
   status: string;
   version: number;
   candidate_name?: string;
+  evaluation_submitted?: boolean;
 }
 
 export const InterviewerInterviewsPage: React.FC = () => {
@@ -46,7 +47,7 @@ export const InterviewerInterviewsPage: React.FC = () => {
       return start > now;
     }
     if (filter === 'needs_feedback') {
-      return now >= start && iv.status !== 'cancelled' && iv.status !== 'no_show';
+      return now >= start && ['scheduled', 'confirmed', 'completed'].includes(iv.status) && !iv.evaluation_submitted;
     }
     if (filter === 'completed') {
       return iv.status === 'completed' || now > end;
@@ -186,15 +187,7 @@ export const InterviewerInterviewsPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-center justify-between gap-2 pt-4 mt-3 border-t border-slate-800/60">
-                        <a
-                          href={`${apiClient.getBaseUrl()}/interviews/${iv.id}/ics`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>.ics</span>
-                        </a>
+                        <CalendarDownloadButton interviewId={iv.id} label=".ics" />
 
                         <Button
                           variant="primary"

@@ -1,11 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Clock,
   CheckCircle,
   Bell,
-  Download,
   Calendar,
   Building,
   CheckCircle2,
@@ -27,6 +26,7 @@ import {
   Spinner,
 } from '@/components/ui';
 import { formatTimeUTC } from '@/lib/timelineMath';
+import { CalendarDownloadButton } from '@/components/schedule/CalendarDownloadButton';
 
 export interface MyInterview {
   id: string;
@@ -41,6 +41,7 @@ export interface MyInterview {
   status: string;
   version: number;
   panel_names: string[];
+  evaluation_submitted?: boolean | null;
 }
 
 export interface DecidedRoundResult {
@@ -59,7 +60,7 @@ export interface CandidateDriveProgress {
   rounds: DecidedRoundResult[];
 }
 
-export const CandidateDashboard: React.FC = () => {
+export const CandidateDashboard: React.FC<{ focusProgress?: boolean }> = ({ focusProgress = false }) => {
   const { user } = useAuth();
 
   // Queries
@@ -77,6 +78,11 @@ export const CandidateDashboard: React.FC = () => {
     queryKey: ['notifications'],
     queryFn: () => apiClient<Notification[]>('/notifications?unread_only=false&limit=5'),
   });
+
+  useEffect(() => {
+    if (!focusProgress) return;
+    requestAnimationFrame(() => document.getElementById('candidate-progress')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, [focusProgress]);
 
   return (
     <div className="space-y-8">
@@ -177,15 +183,12 @@ export const CandidateDashboard: React.FC = () => {
                         )}
 
                         <div className="pt-2 flex justify-end">
-                          <a
-                            href={`${apiClient.getBaseUrl()}/interviews/${iv.id}/ics`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 font-medium transition-colors border border-indigo-500/20"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            Add to Calendar (.ics)
-                          </a>
+                          <CalendarDownloadButton
+                            interviewId={iv.id}
+                            label="Add to Calendar (.ics)"
+                            variant="outline"
+                            className="border-indigo-500/20 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30"
+                          />
                         </div>
                       </div>
                     );
@@ -197,7 +200,7 @@ export const CandidateDashboard: React.FC = () => {
         </Card>
 
         {/* Card 2: Drive Progress & Round Decisions */}
-        <Card className="flex flex-col justify-between">
+        <Card id="candidate-progress" className="flex flex-col justify-between scroll-mt-6">
           <div>
             <CardHeader>
               <div>

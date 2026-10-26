@@ -1,4 +1,7 @@
 """Pass/fail rules. No database needed."""
+import pytest
+from pydantic import ValidationError
+
 from app.services.pipeline_rules import (
     StageState,
     average,
@@ -7,6 +10,7 @@ from app.services.pipeline_rules import (
     rule_met,
     stage_state,
 )
+from app.schemas.drive import StageCreate
 
 RULE = {"type": "min_score", "min_score": 6.0}
 
@@ -45,7 +49,20 @@ def test_blockers():
     assert codes(evaluated=set(), avg=None) == ["evaluations_incomplete"]
     assert codes(avg=3.0) == ["rule_not_met"]
     assert codes(panel={"a", "b"}, evaluated={"a"}, avg=3.0) == ["evaluations_incomplete", "rule_not_met"]
-    assert codes(rule={"type": "unknown"}, avg=0.0) == []        # cannot be judged, so it does not block
+    assert codes(rule={"type": "unknown"}, avg=0.0) == ["unsupported_rule"]
+
+
+def test_stage_rules_reject_unimplemented_and_invalid_types():
+    base = dict(order_index=1, name="Tech", stage_type="technical", duration_minutes=30)
+    assert StageCreate(**base, rule={"type": "min_score", "min_score": 7}).rule["min_score"] == 7
+    for rule in (
+        {"type": "panel_vote"},
+        {"type": "min_score", "min_score": True},
+        {"type": "min_score", "min_score": 11},
+        {"type": "min_score", "min_score": float("nan")},
+    ):
+        with pytest.raises(ValidationError):
+            StageCreate(**base, rule=rule)
 
 
 def state(status, stage, current, interview=False, done=False):

@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.models import (
-    Interview, InterviewStatus, Notification, NotificationChannel, NotificationStatus, PanelAssignment,
+    Interview, InterviewStatus, Notification, NotificationChannel, NotificationStatus, PanelAssignment, User,
 )
+from app.core.config import settings
 from app.services import notifications
+from app.services.notifications import SMTPEmailSender
 
 from .conftest import T0
 
@@ -46,6 +48,55 @@ def test_backfill_creates_notifications_a_crash_would_have_lost(db, drive):
     assert len(rows_for(db, iv)) == 2
     notifications.backfill_missing(db)
     assert len(rows_for(db, iv)) == 2                   # running it again creates no duplicates
+
+
+def test_smtp_alerts_are_queued_only_when_configured(db, drive, monkeypatch):
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.test")
+    monkeypatch.setattr(settings, "SMTP_FROM", "alerts@example.test")
+    iv = confirmed_interview(db, drive)
+    assert notifications.notify_booking_confirmed(db, iv.id) is True
+    rows = rows_for(db, iv)
+    assert len(rows) == 4
+    assert sum(row.channel == NotificationChannel.EMAIL and row.status == NotificationStatus.PENDING for row in rows) == 2
+    assert notifications.notify_booking_confirmed(db, iv.id) is True
+    assert len(rows_for(db, iv)) == 4
+
+
+def test_smtp_sender_uses_tls_and_resolved_recipient(db, drive, monkeypatch):
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.test")
+    monkeypatch.setattr(settings, "SMTP_PORT", 587)
+    monkeypatch.setattr(settings, "SMTP_FROM", "alerts@example.test")
+    monkeypatch.setattr(settings, "SMTP_USE_SSL", False)
+    monkeypatch.setattr(settings, "SMTP_STARTTLS", True)
+    monkeypatch.setattr(settings, "SMTP_USERNAME", None)
+    monkeypatch.setattr(settings, "SMTP_PASSWORD", None)
+    user = db.scalars(select(User).where(User.email == "c0@example.com")).one()
+    notification = Notification(
+        user_id=user.id, type="booking_confirmed", title="Interview confirmed",
+        message="Your interview is confirmed.", payload={}, channel=NotificationChannel.EMAIL,
+        status=NotificationStatus.PENDING,
+    )
+    calls = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            calls["connection"] = (host, port, timeout)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return None
+        def starttls(self, **kwargs):
+            calls["tls"] = True
+        def send_message(self, message):
+            calls["to"] = message["To"]
+            calls["subject"] = message["Subject"]
+
+    monkeypatch.setattr("app.services.notifications.smtplib.SMTP", FakeSMTP)
+    SMTPEmailSender(db).send(notification)
+    assert calls["connection"][:2] == ("smtp.test", 587)
+    assert calls["tls"] is True
+    assert calls["to"] == user.email
+    assert calls["subject"] == "Interview confirmed"
 
 
 def test_a_failed_notification_never_touches_the_booking(db, drive, monkeypatch):

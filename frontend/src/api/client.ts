@@ -179,6 +179,18 @@ apiClient.delete = <T>(endpoint: string, options?: RequestOptions): Promise<T> =
 apiClient.getBaseUrl = (): string =>
   import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+export async function downloadInterviewCalendar(interviewId: string): Promise<void> {
+  const calendar = await apiClient<string>(`/interviews/${encodeURIComponent(interviewId)}/ics`);
+  const objectUrl = URL.createObjectURL(new Blob([calendar], { type: 'text/calendar;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = `interview-${interviewId}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
 // Generate random UUIDv4 for Idempotency-Key
 export function generateIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {

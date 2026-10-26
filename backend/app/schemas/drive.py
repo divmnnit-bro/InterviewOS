@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.enums import DriveCandidateStatus, DriveStatus, StageType
 from app.schemas.common import ORMModel, require_aware, require_zone
+from app.services.pipeline_rules import validate_pass_rule
 
 # Statuses a coordinator may set by hand. `published` is reached only by publishing a schedule.
 SETTABLE_STATUSES = {DriveStatus.DRAFT, DriveStatus.COLLECTING_AVAILABILITY, DriveStatus.ARCHIVED}
@@ -85,6 +86,11 @@ class StageCreate(BaseModel):
     required_skills: list[str] = Field(default_factory=list, max_length=20)
     rule: dict[str, Any] | None = None
 
+    @field_validator("rule")
+    @classmethod
+    def _valid_pass_rule(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_pass_rule(value)
+
 
 class StageUpdate(BaseModel):
     order_index: int | None = Field(default=None, ge=1)
@@ -94,6 +100,11 @@ class StageUpdate(BaseModel):
     panel_size: int | None = Field(default=None, ge=1, le=10)
     required_skills: list[str] | None = Field(default=None, max_length=20)
     rule: dict[str, Any] | None = None
+
+    @field_validator("rule")
+    @classmethod
+    def _valid_pass_rule(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_pass_rule(value)
 
 
 class StageOut(ORMModel):

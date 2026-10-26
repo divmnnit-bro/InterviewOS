@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ------------------------------------------------------------------ Interview Kit Schemas
@@ -21,6 +21,8 @@ class CodingQuestion(BaseModel):
     sample_inputs_outputs: list[CodingSampleIO] = Field(default_factory=list)
     expected_concepts: list[str] = Field(default_factory=list)
     edge_cases: list[str] = Field(default_factory=list)
+    competencies_to_assess: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
     evaluation_rubric: dict[str, str] = Field(
         default_factory=lambda: {
             "correctness": "Solves problem within edge cases and constraints",
@@ -36,6 +38,8 @@ class SystemDesignScenario(BaseModel):
     functional_requirements: list[str] = Field(default_factory=list)
     non_functional_requirements: list[str] = Field(default_factory=list)
     scalability_concerns: list[str] = Field(default_factory=list)
+    competencies_to_assess: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
     evaluation_criteria: dict[str, str] = Field(
         default_factory=lambda: {
             "architecture": "Clear separation of components and communication protocols",
@@ -50,6 +54,24 @@ class BehavioralQuestion(BaseModel):
     competency: str  # e.g., Ownership, Collaboration, Dealing with Ambiguity
     situation_guidance: str
     evaluation_rubric: str
+    expected_indicators: list[str] = Field(default_factory=list)
+    red_flags: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
+
+
+class MultipleChoiceQuestion(BaseModel):
+    question: str
+    competency: str
+    difficulty: Literal["beginner", "intermediate", "advanced"]
+    options: list[str] = Field(min_length=2, max_length=6)
+    correct_answer_index: int = Field(ge=0)
+    explanation: str
+
+    @model_validator(mode="after")
+    def _answer_must_be_an_option(self) -> "MultipleChoiceQuestion":
+        if self.correct_answer_index >= len(self.options):
+            raise ValueError("correct_answer_index must point to an available option")
+        return self
 
 
 class InterviewKitRequest(BaseModel):
@@ -71,11 +93,24 @@ class InterviewKitResponse(BaseModel):
     coding_questions: list[CodingQuestion] = Field(default_factory=list)
     system_design_scenarios: list[SystemDesignScenario] = Field(default_factory=list)
     behavioral_questions: list[BehavioralQuestion] = Field(default_factory=list)
+    multiple_choice_questions: list[MultipleChoiceQuestion] = Field(default_factory=list)
+    competencies_to_assess: list[str] = Field(default_factory=list)
     rubric_template: dict[str, Any] = Field(default_factory=dict)
     provider_used: str = "deterministic"
     model_used: str = "local"
     is_ai_generated: bool = False
     job_id: uuid.UUID | None = None
+
+
+class InterviewKitDraftUpdate(BaseModel):
+    topic: str = Field(min_length=1, max_length=128)
+    difficulty: Literal["beginner", "intermediate", "advanced", "comprehensive"]
+    coding_questions: list[CodingQuestion] = Field(max_length=30)
+    system_design_scenarios: list[SystemDesignScenario] = Field(max_length=20)
+    behavioral_questions: list[BehavioralQuestion] = Field(max_length=30)
+    multiple_choice_questions: list[MultipleChoiceQuestion] = Field(max_length=50)
+    competencies_to_assess: list[str] = Field(default_factory=list, max_length=50)
+    rubric_template: dict[str, Any] = Field(default_factory=dict)
 
 
 # ------------------------------------------------------------------ Drive Brief Schemas

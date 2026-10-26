@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ from app.schemas.ai import (
     DriveBriefRequest,
     DriveBriefResponse,
     InterviewKitRequest,
+    InterviewKitDraftUpdate,
     InterviewKitResponse,
 )
 from app.services.ai import copilot
@@ -29,6 +32,17 @@ def create_interview_kit(
 ) -> InterviewKitResponse:
     """Generate structured technical questions, coding edge cases, and rubrics using AI."""
     return copilot.generate_interview_kit(db, req, actor_id=user.id)
+
+
+@router.put("/interview-kits/{kit_id}", response_model=InterviewKitResponse)
+def update_interview_kit_draft(
+    kit_id: uuid.UUID,
+    req: InterviewKitDraftUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_coordinator),
+) -> InterviewKitResponse:
+    """Save a coordinator-reviewed interview-kit draft before it is used."""
+    return copilot.update_interview_kit_draft(db, kit_id, req, actor_id=user.id)
 
 
 @router.post("/drive-brief", response_model=DriveBriefResponse, status_code=status.HTTP_200_OK)

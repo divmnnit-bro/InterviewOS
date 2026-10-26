@@ -73,6 +73,12 @@ def test_generate_interview_kit_sync(client, db, drive, coordinator):
     assert len(cq["constraints"]) > 0
     assert len(cq["sample_inputs_outputs"]) > 0
     assert cq["evaluation_rubric"]
+    assert len(out["multiple_choice_questions"]) >= 1
+    mcq = out["multiple_choice_questions"][0]
+    assert 0 <= mcq["correct_answer_index"] < len(mcq["options"])
+    assert mcq["explanation"]
+    assert cq["follow_up_questions"]
+    assert out["competencies_to_assess"]
 
     assert len(out["system_design_scenarios"]) >= 1
     sd = out["system_design_scenarios"][0]
@@ -84,6 +90,42 @@ def test_generate_interview_kit_sync(client, db, drive, coordinator):
     assert out["rubric_template"]
     assert out["is_ai_generated"] is False
     assert out["provider_used"] == "deterministic"
+
+    draft = {key: out[key] for key in (
+        "topic", "difficulty", "coding_questions", "system_design_scenarios",
+        "behavioral_questions", "multiple_choice_questions", "competencies_to_assess", "rubric_template",
+    )}
+    draft["multiple_choice_questions"][0]["question"] = "Coordinator-reviewed question?"
+    saved = client.put(f"/ai/interview-kits/{out['kit_id']}", headers=h, json=draft)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["multiple_choice_questions"][0]["question"] == "Coordinator-reviewed question?"
+    candidate_auth = login(client, "c0@example.com")
+    forbidden = client.put(f"/ai/interview-kits/{out['kit_id']}", headers=candidate_auth, json=draft)
+    assert forbidden.status_code == 403
+
+
+def test_external_kit_generation_never_receives_raw_job_description(db, drive, monkeypatch):
+    captured = {}
+
+    class CapturingExternalProvider(DeterministicLocalProvider):
+        name = "openai"
+
+        def generate_structured(self, prompt, schema_cls, system_prompt=""):
+            captured["prompt"] = prompt
+            return super().generate_structured(prompt, schema_cls, system_prompt)
+
+    monkeypatch.setattr("app.services.ai.copilot.get_llm_provider", lambda: CapturingExternalProvider())
+    generate_interview_kit(
+        db,
+        InterviewKitRequest(
+            drive_id=uuid.UUID(drive["id"]),
+            topic="Backend Engineer",
+            required_skills=["Python", "PostgreSQL"],
+            job_description="PRIVATE_JOB_DESCRIPTION_SENTINEL candidate contact details",
+        ),
+    )
+    assert "PRIVATE_JOB_DESCRIPTION_SENTINEL" not in captured["prompt"]
+    assert "Python" in captured["prompt"] and "PostgreSQL" in captured["prompt"]
 
 
 def test_generate_interview_kit_async(client, db, drive, coordinator):
@@ -147,9 +189,35 @@ def test_candidate_ai_summary(client, db, published, coordinator):
     assert out["candidate_id"] == cid
     assert out["pipeline_status"] == "active"
     assert out["progression_readiness"]
-    assert len(out["recurring_strengths"]) > 0
+    assert out["recurring_strengths"] == []
+    assert out["recurring_weaknesses"] == []
+    assert "no hiring decision" in out["disclaimer"].lower()
     assert "human" in out["disclaimer"].lower()
     assert out["is_ai_generated"] is False
+
+
+def test_candidate_summary_uses_recorded_rubric_areas_only(client, db, published, coordinator):
+    candidate_id = published["candidates"][0]
+    interview = db.scalar(select(Interview).where(Interview.candidate_id == candidate_id))
+    panelist_id = db.scalar(select(PanelAssignment.interviewer_id).where(PanelAssignment.interview_id == interview.id))
+    db.add(Evaluation(
+        interview_id=interview.id,
+        interviewer_id=panelist_id,
+        score=8.0,
+        rubric={"Problem Solving": 9.0, "Communication": 6.0},
+        feedback="An internal note that must not become an AI-authored claim.",
+        recommendation=Recommendation.HIRE,
+    ))
+    db.commit()
+
+    response = client.post("/ai/candidate-summary", headers=coordinator, json={
+        "drive_id": published["id"], "candidate_id": candidate_id,
+    })
+    assert response.status_code == 200, response.text
+    summary = response.json()
+    assert any("Problem Solving" in item and "9.00/10" in item for item in summary["recurring_strengths"])
+    assert any("Communication" in item and "6.00/10" in item for item in summary["recurring_weaknesses"])
+    assert "technical mastery" not in summary["recommendation_synthesis"].lower()
 
 
 def test_ask_recruitment_copilot(client, db, published, coordinator):

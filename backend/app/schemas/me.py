@@ -23,6 +23,7 @@ class MyInterviewOut(BaseModel):
     version: int
     candidate_name: str | None = None  # Populated for interviewer view
     panel_names: list[str] = []        # Populated for candidate view
+    evaluation_submitted: bool | None = None  # Interviewer's own feedback status; hidden from candidates
 
 
 class DecidedRoundResult(BaseModel):

@@ -13,7 +13,9 @@ from app.models import (
     Candidate,
     DriveCandidate,
     DriveCandidateStatus,
+    Evaluation,
     Interview,
+    InterviewStatus,
     InterviewStage,
     PanelAssignment,
     RecruitmentDrive,
@@ -37,7 +39,7 @@ def my_interviews(
         interviews = list(
             db.scalars(
                 select(Interview)
-                .where(Interview.candidate_id == user.id)
+                .where(Interview.candidate_id == user.id, Interview.status != InterviewStatus.PROPOSED)
                 .order_by(Interview.start_time.asc())
             )
         )
@@ -49,12 +51,22 @@ def my_interviews(
                 .where(
                     PanelAssignment.interviewer_id == user.id,
                     PanelAssignment.is_active.is_(True),
+                    Interview.status != InterviewStatus.PROPOSED,
                 )
                 .order_by(Interview.start_time.asc())
             )
         )
 
     out: list[MyInterviewOut] = []
+    submitted_interview_ids: set[uuid.UUID] = set()
+    if user.role == UserRole.INTERVIEWER and interviews:
+        submitted_interview_ids = set(db.scalars(
+            select(Evaluation.interview_id).where(
+                Evaluation.interviewer_id == user.id,
+                Evaluation.interview_id.in_([it.id for it in interviews]),
+            )
+        ))
+
     for it in interviews:
         stage = it.stage
         drive = stage.drive if stage else None
@@ -86,6 +98,8 @@ def my_interviews(
                 version=it.version,
                 candidate_name=candidate_name if user.role != UserRole.CANDIDATE else None,
                 panel_names=panel_names if user.role == UserRole.CANDIDATE else [],
+                evaluation_submitted=(it.id in submitted_interview_ids)
+                if user.role == UserRole.INTERVIEWER else None,
             )
         )
 

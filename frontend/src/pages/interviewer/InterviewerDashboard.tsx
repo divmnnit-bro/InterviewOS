@@ -50,7 +50,7 @@ export const InterviewerDashboard: React.FC = () => {
 
   const needsEvaluation = interviews.filter((iv) => {
     const start = new Date(iv.start_time);
-    return now >= start && iv.status !== 'cancelled' && iv.status !== 'no_show';
+    return now >= start && ['scheduled', 'confirmed', 'completed'].includes(iv.status) && !iv.evaluation_submitted;
   });
 
   return (

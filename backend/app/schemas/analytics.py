@@ -8,6 +8,23 @@ from pydantic import BaseModel, Field
 
 
 # ------------------------------------------------------------------ Overview
+class UpcomingInterviewOut(BaseModel):
+    interview_id: uuid.UUID
+    drive_id: uuid.UUID
+    drive_title: str
+    stage_name: str
+    candidate_name: str
+    room_name: str | None = None
+    start_time: datetime
+    end_time: datetime
+
+
+class RecentActivityOut(BaseModel):
+    action: str
+    entity_type: str
+    timestamp: datetime
+
+
 class AnalyticsOverviewOut(BaseModel):
     total_drives: int
     active_drives: int
@@ -19,6 +36,9 @@ class AnalyticsOverviewOut(BaseModel):
     global_completion_rate: float
     total_evaluations_submitted: int
     average_score_across_all_evaluations: float | None = None
+    pending_evaluations_count: int = 0
+    upcoming_interviews: list[UpcomingInterviewOut] = Field(default_factory=list)
+    recent_activity: list[RecentActivityOut] = Field(default_factory=list)
     generated_at: str
 
 

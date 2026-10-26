@@ -25,9 +25,10 @@ def get_overview(
     db: Session = Depends(get_db),
     user: User = Depends(require_coordinator),
     refresh: Annotated[bool, Query(description="Force refresh cache")] = False,
+    drive_id: Annotated[uuid.UUID | None, Query(description="Limit upcoming interviews to a drive")] = None,
 ) -> AnalyticsOverviewOut:
     """Get global platform analytics overview across all recruitment drives."""
-    return analytics_service.get_overview_analytics(db, force_refresh=refresh)
+    return analytics_service.get_overview_analytics(db, force_refresh=refresh, drive_id=drive_id)
 
 
 @router.get("/drives/{drive_id}", response_model=DriveAnalyticsOut)

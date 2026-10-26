@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/api/client';
 import { Button, Modal, Badge, Spinner, FormField, Textarea, Input } from '@/components/ui';
+import { useAuth } from '@/context/AuthContext';
 
 export interface EvaluationModalProps {
   interviewId: string;
@@ -26,7 +27,7 @@ export interface EvaluationModalProps {
   onSubmitted?: () => void;
 }
 
-export type RecommendationType = 'strong_hire' | 'hire' | 'weak_hire' | 'hold' | 'reject';
+export type RecommendationType = 'strong_hire' | 'hire' | 'no_hire' | 'strong_no_hire';
 
 export interface EvaluationRead {
   id: string;
@@ -60,17 +61,18 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
   onSubmitted,
 }) => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'evaluate' | 'colleagues'>('evaluate');
-  const [rubric, setRubric] = useState<Record<string, number>>({
-    'Problem Solving': 7,
-    'Technical Competence': 8,
-    'Communication': 7,
-    'Culture & Values': 8,
+  const [rubric, setRubric] = useState<Record<string, number | undefined>>({
+    'Problem Solving': undefined,
+    'Technical Competence': undefined,
+    Communication: undefined,
+    'Culture & Values': undefined,
   });
   const [newCriterionName, setNewCriterionName] = useState('');
   const [manualScore, setManualScore] = useState<string>('');
-  const [recommendation, setRecommendation] = useState<RecommendationType>('hire');
+  const [recommendation, setRecommendation] = useState<RecommendationType | ''>('');
   const [feedback, setFeedback] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -87,16 +89,19 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
   });
 
   // Calculate default score from rubric mean
-  const rubricValues = Object.values(rubric);
+  const rubricValues = Object.values(rubric).filter((rating): rating is number => typeof rating === 'number');
+  const rubricValid = rubricValues.every((rating) => Number.isFinite(rating) && rating >= 0 && rating <= 10);
   const computedAverage =
-    rubricValues.length > 0
+    rubricValues.length > 0 && rubricValid
       ? Number((rubricValues.reduce((a, b) => a + b, 0) / rubricValues.length).toFixed(2))
-      : 0;
+      : null;
 
   const effectiveScore = manualScore.trim() !== '' ? Number(manualScore) : computedAverage;
+  const manualScoreValid = manualScore.trim() === '' || (Number.isFinite(Number(manualScore)) && Number(manualScore) >= 0 && Number(manualScore) <= 10);
+  const hasScore = manualScore.trim() !== '' || rubricValues.length > 0;
 
   // Check if author has already submitted
-  const ownEvaluation = evData?.evaluations?.find((e) => e.interview_id === interviewId);
+  const ownEvaluation = evData?.evaluations?.find((e) => e.interviewer_id === user?.id);
   const isRevision = !!ownEvaluation;
 
   useEffect(() => {
@@ -118,8 +123,21 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
 
   const submitMutation = useMutation({
     mutationFn: async () => {
+      const ratedRubric = Object.fromEntries(
+        Object.entries(rubric).filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+      );
+      if (!recommendation) throw new Error('Choose a recommendation before submitting.');
+      if (manualScore.trim() !== '' && !manualScoreValid) {
+        throw new Error('Overall score must be a number from 0 to 10.');
+      }
+      if (!rubricValid) {
+        throw new Error('Each rubric rating must be a number from 0 to 10.');
+      }
+      if (!hasScore) {
+        throw new Error('Rate at least one rubric criterion or enter an overall score.');
+      }
       const payload: any = {
-        rubric,
+        rubric: ratedRubric,
         recommendation,
         feedback: feedback.trim() || null,
       };
@@ -144,8 +162,8 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
     },
   });
 
-  const handleRatingChange = (criterion: string, value: number) => {
-    setRubric((prev) => ({ ...prev, [criterion]: Math.max(0, Math.min(10, value)) }));
+  const handleRatingChange = (criterion: string, value: number | undefined) => {
+    setRubric((prev) => ({ ...prev, [criterion]: value }));
   };
 
   const handleAddCriterion = () => {
@@ -155,7 +173,7 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
       setValidationError('Maximum 20 rubric criteria allowed.');
       return;
     }
-    setRubric((prev) => ({ ...prev, [trimmed]: 7 }));
+    setRubric((prev) => ({ ...prev, [trimmed]: undefined }));
     setNewCriterionName('');
   };
 
@@ -259,7 +277,7 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
                   Rubric Criteria Ratings (0 to 10)
                 </label>
                 <span className="text-xs text-indigo-300 font-mono font-bold">
-                  Average: {computedAverage} / 10
+                  Average: {computedAverage === null ? (rubricValues.length ? 'Check ratings' : 'Not rated') : `${computedAverage} / 10`}
                 </span>
               </div>
 
@@ -271,18 +289,18 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
                   >
                     <span className="text-xs font-medium text-slate-200 flex-1">{name}</span>
                     <div className="flex items-center gap-3">
-                      <input
-                        type="range"
+                      <Input
+                        type="number"
                         min="0"
                         max="10"
                         step="0.5"
-                        value={rating}
-                        onChange={(e) => handleRatingChange(name, parseFloat(e.target.value))}
-                        className="w-28 sm:w-36 accent-indigo-500 cursor-pointer"
+                        placeholder="Not rated"
+                        value={rating ?? ''}
+                        onChange={(e) => handleRatingChange(name, e.target.value === '' ? undefined : Number(e.target.value))}
+                        aria-label={`${name} rating out of 10`}
+                        error={rating !== undefined && (!Number.isFinite(rating) || rating < 0 || rating > 10) ? 'Enter 0 to 10' : undefined}
+                        className="w-28 sm:w-36 text-center"
                       />
-                      <span className="w-8 text-center text-xs font-mono font-bold text-indigo-300 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
-                        {rating}
-                      </span>
                       {Object.keys(rubric).length > 1 && (
                         <button
                           type="button"
@@ -326,9 +344,10 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
                   min="0"
                   max="10"
                   step="0.1"
-                  placeholder={`Default: ${computedAverage}`}
+                  placeholder={computedAverage === null ? 'Rate a criterion to calculate' : `Calculated: ${computedAverage}`}
                   value={manualScore}
                   onChange={(e) => setManualScore(e.target.value)}
+                  error={!manualScoreValid ? 'Enter a number from 0 to 10' : undefined}
                 />
               </FormField>
 
@@ -338,11 +357,11 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
                   onChange={(e) => setRecommendation(e.target.value as RecommendationType)}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
+                  <option value="">Select recommendation</option>
                   <option value="strong_hire">Strong Hire</option>
                   <option value="hire">Hire</option>
-                  <option value="weak_hire">Weak Hire</option>
-                  <option value="hold">Hold</option>
-                  <option value="reject">Reject</option>
+                  <option value="no_hire">No Hire</option>
+                  <option value="strong_no_hire">Strong No Hire</option>
                 </select>
               </FormField>
             </div>
@@ -363,7 +382,7 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
               <div className="text-xs text-slate-400">
                 Effective Score:{' '}
                 <strong className="text-indigo-300 font-mono font-bold">
-                  {effectiveScore} / 10
+                  {effectiveScore === null || !Number.isFinite(effectiveScore) ? 'Not rated' : `${effectiveScore} / 10`}
                 </strong>
               </div>
               <div className="flex gap-2">
@@ -373,7 +392,7 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
                 <Button
                   variant="primary"
                   onClick={() => submitMutation.mutate()}
-                  disabled={submitMutation.isPending || !hasStarted}
+                  disabled={submitMutation.isPending || !hasStarted || !recommendation || !hasScore || !manualScoreValid || !rubricValid}
                   className="bg-indigo-600 hover:bg-indigo-500"
                 >
                   {submitMutation.isPending ? (
@@ -442,7 +461,7 @@ export const EvaluationModal: React.FC<EvaluationModalProps> = ({
                           variant={
                             ev.recommendation === 'strong_hire' || ev.recommendation === 'hire'
                               ? 'success'
-                              : ev.recommendation === 'reject'
+                              : ev.recommendation === 'no_hire' || ev.recommendation === 'strong_no_hire'
                               ? 'danger'
                               : 'warning'
                           }
