@@ -2,12 +2,18 @@ import React, { forwardRef } from 'react';
 import clsx from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   error?: string;
+  options?: SelectOption[];
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, error, children, ...props }, ref) => {
+  ({ className, error, children, options, ...props }, ref) => {
     return (
       <div className="relative w-full">
         <select
@@ -23,7 +29,13 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           )}
           {...props}
         >
-          {children}
+          {options
+            ? options.map((opt) => (
+                <option key={opt.value} value={opt.value} className="bg-slate-900 text-slate-100">
+                  {opt.label}
+                </option>
+              ))
+            : children}
         </select>
         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
           <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">

@@ -36,14 +36,6 @@ def before_the_interviews(monkeypatch):
     monkeypatch.setattr(service, "_now", lambda: datetime(2026, 10, 1, tzinfo=timezone.utc))
 
 
-@pytest.fixture()
-def published(client, drive):
-    h, did = drive["headers"], drive["id"]
-    assert client.post(f"/drives/{did}/schedule/propose", headers=h).status_code == 200
-    r = client.post(f"/drives/{did}/schedule/publish", headers=h, json={"expected_version": 0})
-    assert r.status_code == 200, r.text
-    return drive
-
 
 def snapshot(db):
     """Everything a repair may change, as plain values."""
@@ -93,8 +85,8 @@ def test_explain_names_the_reason_and_a_verified_fix(client, db, drive):
     assert all(f["extra_interviews"] >= 1 for f in e["fixes"])
 
     # Read-only: nothing was saved.
-    assert db.scalars(select(Interview)).all() == []
-    assert db.scalar(select(AuditEvent.id).where(AuditEvent.action.like("schedule.%"))) is None
+    assert db.scalars(select(Interview).where(Interview.stage.has(drive_id=did))).all() == []
+    assert db.scalar(select(AuditEvent.id).where(AuditEvent.entity_id == did, AuditEvent.action.like("schedule.%"))) is None
 
 
 def test_explain_with_everyone_scheduled_has_nothing_to_explain(client, drive):
@@ -145,9 +137,9 @@ def test_apply_panel_swap_is_atomic_audited_and_notified(client, db, published):
     for i in db.scalars(select(Interview)):
         assert i.status == InterviewStatus.SCHEDULED
         assert (i.start_time, i.room_id) == times_before[str(i.id)]
-    assert db.scalar(select(RecruitmentDrive.schedule_version)) == 2
+    assert db.scalar(select(RecruitmentDrive.schedule_version).where(RecruitmentDrive.id == did)) == 2
 
-    audit = db.scalars(select(AuditEvent).where(AuditEvent.action == "schedule.rescue")).one()
+    audit = db.scalars(select(AuditEvent).where(AuditEvent.entity_id == did, AuditEvent.action == "schedule.rescue")).one()
     assert audit.details["from_version"] == 1 and audit.details["to_version"] == 2
     assert len(audit.details["moved"]) == len(plan["moves"])
     kinds = {n.type for n in db.scalars(select(Notification))}
@@ -260,7 +252,7 @@ def test_applying_the_same_repair_twice_is_stale_the_second_time(client, db, pub
 
 
 def test_a_failure_part_way_through_rolls_everything_back(db, published, monkeypatch):
-    coordinator = db.scalars(select(User).where(User.role == UserRole.COORDINATOR)).one()
+    coordinator = db.scalars(select(User).where(User.role == UserRole.COORDINATOR)).first()
     real = service._write_plan
 
     def write_then_crash(session, plan):

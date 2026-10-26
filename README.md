@@ -161,7 +161,7 @@ alembic revision --autogenerate -m "describe the change"   # after editing a mod
 | `0001` | Initial schema, `btree_gist`, the exclusion constraints that block double booking |
 | `0002` | `room_availabilities`, `recruitment_drives.timezone` (what "a day" means for daily limits) |
 | `0003` | Per-drive scheduling rules: slot grid, interviewer rest, minimum gap between rounds |
-| `0004` | `evaluations.recommendation` (`strong_hire`, `hire`, `no_hire`, `strong_no_hire`) |
+| `0004` | `evaluations.recommendation` (`strong_hire`, `hire`, `no_hire`, `strong_no_hire`) |`r`n| `0005` | AI interview kits, background-job tracking, advanced scheduling quality and analytics support |
 
 `0001` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`, which needs a PostgreSQL role allowed to create extensions
 (the `postgres` superuser in the Compose database is). On managed PostgreSQL, enable `btree_gist` first.
@@ -465,6 +465,13 @@ All frontend requirements specified across F1 through F8 are fully implemented a
 
 ---
 
+## Free Render preview
+
+The root `render.yaml` Blueprint defines the frontend static site, Docker API and private PostgreSQL 16 database. All compute and database resources are set to Render's **Free** plan; preview environments are disabled, and the AI provider stays deterministic so the deploy makes no OpenAI API calls. No paid plan or API key is configured.
+
+To publish it, connect this repository in Render and create a Blueprint from `render.yaml`. Render will build both services, run Alembic migrations at API startup, and wire the frontend URL to the API. The frontend URL shown on the Render dashboard is the live app link.
+
+This is a temporary preview: Render Free web services sleep after 15 minutes without traffic and can take about a minute to wake. The 1 GB Free Postgres database expires after 30 days; Render provides a 14-day upgrade grace period before deleting it, and Free Postgres has no backups. Export any data you need before expiry. The Blueprint itself only selects Free plans; Render account-level usage/billing settings remain managed in the Render dashboard.
 ## Production notes
 
 Build and run the image without the development mount and without `--reload`:

@@ -1,3 +1,4 @@
+from app.models.ai_interview_kit import AIInterviewKit
 from app.models.audit_event import AuditEvent
 from app.models.availability import Availability
 from app.models.candidate import Candidate
@@ -17,6 +18,7 @@ from app.models.enums import (
 from app.models.evaluation import Evaluation
 from app.models.interview import Interview
 from app.models.interviewer import Interviewer
+from app.models.job import Job, JobStatus
 from app.models.notification import Notification
 from app.models.panel_assignment import PanelAssignment
 from app.models.room import Room
@@ -25,6 +27,7 @@ from app.models.stage import InterviewStage
 from app.models.user import User
 
 __all__ = [
+    "AIInterviewKit",
     "AuditEvent",
     "Availability",
     "Candidate",
@@ -36,6 +39,8 @@ __all__ = [
     "InterviewStage",
     "InterviewStatus",
     "Interviewer",
+    "Job",
+    "JobStatus",
     "Notification",
     "NotificationChannel",
     "NotificationStatus",

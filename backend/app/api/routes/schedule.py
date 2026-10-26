@@ -52,14 +52,34 @@ def propose(drive_id: uuid.UUID, options: ProposeOptions | None = None,
 
     Replaces any earlier pending proposal. Nothing is visible to candidates until it is published.
     """
-    _, result, version = scheduling.propose_schedule(db, drive_id, user.id, options)
+    inp, result, version = scheduling.propose_schedule(db, drive_id, user.id, options)
     _, rows = scheduling.get_proposal(db, drive_id)
     panel = scheduling.interviewer_ids_of(db, rows)
+
+    from app.scheduler.quality import compare_schedules, compute_schedule_quality
+    from app.models import Interview, InterviewStage, InterviewStatus
+    from sqlalchemy import select
+
+    quality = compute_schedule_quality(inp, result)
+
+    existing_published = list(
+        db.scalars(
+            select(Interview)
+            .join(InterviewStage, InterviewStage.id == Interview.stage_id)
+            .where(
+                InterviewStage.drive_id == drive_id,
+                Interview.status.in_([InterviewStatus.SCHEDULED, InterviewStatus.CONFIRMED, InterviewStatus.COMPLETED]),
+            )
+        )
+    )
+    comparison = compare_schedules(existing_published, result.interviews)
+
     return ProposalOut(
         drive_id=drive_id,
         schedule_version=version,
         solver_status=result.status.value,
         complete=result.complete,
+        wall_time_seconds=result.wall_time_seconds,
         interviews=[_interview_out(r, panel) for r in rows],
         unscheduled=[
             UnscheduledOut(
@@ -68,6 +88,8 @@ def propose(drive_id: uuid.UUID, options: ProposeOptions | None = None,
             )
             for u in result.unscheduled
         ],
+        quality_report=quality.to_dict(),
+        comparison=comparison.to_dict(),
     )
 
 

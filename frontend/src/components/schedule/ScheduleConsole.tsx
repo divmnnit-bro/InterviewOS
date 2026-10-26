@@ -15,6 +15,7 @@ import {
   Layers,
   ChevronRight,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { Button } from '../ui/Button';
@@ -69,13 +70,41 @@ export interface UnscheduledCandidate {
   reasons: Array<{ code: string; detail?: string }>;
 }
 
+export interface QualityReportOut {
+  total_requested: number;
+  scheduled_count: number;
+  unscheduled_count: number;
+  completion_rate: number;
+  hard_constraint_violations: number;
+  violation_details: string[];
+  interviewer_workload_variance: number;
+  interviewer_workload_std_dev: number;
+  min_interviewer_load: number;
+  max_interviewer_load: number;
+  room_utilization_percent: number;
+  average_candidate_wait_hours: number;
+  schedule_changes_count: number;
+  is_verified: boolean;
+}
+
+export interface ScheduleDiffOut {
+  unchanged_count: number;
+  moved_count: number;
+  added_count: number;
+  cancelled_count: number;
+  details: Array<Record<string, unknown>>;
+}
+
 export interface ProposalOut {
   drive_id: string;
   schedule_version: number;
   solver_status?: string;
   complete?: boolean;
+  wall_time_seconds?: number;
   interviews: ProposedInterview[];
   unscheduled?: UnscheduledCandidate[];
+  quality_report?: QualityReportOut;
+  comparison?: ScheduleDiffOut;
 }
 
 export interface DriveInterviewDetailOut {
@@ -398,6 +427,82 @@ export const ScheduleConsole: React.FC<ScheduleConsoleProps> = ({
           </div>
         </div>
       </Card>
+
+      {/* Schedule Quality & Verification Report */}
+      {hasProposal && proposal?.quality_report && (
+        <Card className="bg-gradient-to-r from-slate-900/90 via-surface-card to-surface-card border-indigo-500/20 p-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-surface-border pb-3">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              <span className="font-semibold text-sm text-slate-100">Schedule Quality & Verification Report</span>
+              <Badge
+                variant="outline"
+                className={proposal.quality_report.is_verified
+                  ? 'text-xs bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                  : 'text-xs bg-amber-500/10 text-amber-300 border-amber-500/30'}
+              >
+                {proposal.quality_report.hard_constraint_violations} Hard Violations
+                {proposal.quality_report.is_verified ? ' · Verified' : ' · Review needed'}
+              </Badge>
+              <Badge variant="outline" className="text-xs bg-indigo-500/10 text-indigo-300 border-indigo-500/30 uppercase">
+                {proposal.solver_status || 'unknown'}
+              </Badge>
+            </div>
+            {proposal.comparison && (
+              <div className="flex items-center gap-3 text-xs text-slate-400">
+                <span className="text-slate-300">Diff:</span>
+                <span>Unchanged: <strong className="text-slate-200">{proposal.comparison.unchanged_count}</strong></span>
+                <span>Moved: <strong className="text-amber-300">{proposal.comparison.moved_count}</strong></span>
+                <span>Added: <strong className="text-emerald-300">{proposal.comparison.added_count}</strong></span>
+                <span>Cancelled: <strong className="text-slate-200">{proposal.comparison.cancelled_count}</strong></span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3">
+            <div className="p-2.5 bg-slate-950/60 rounded-lg border border-surface-border">
+              <span className="text-[11px] text-slate-400 block">Scheduled Placement</span>
+              <span className="text-base font-bold text-slate-100">
+                {proposal.quality_report.scheduled_count} / {proposal.quality_report.total_requested}
+              </span>
+              <span className="text-[10px] text-emerald-400 ml-1.5 font-medium">
+                ({proposal.quality_report.completion_rate}%)
+              </span>
+            </div>
+
+            <div className="p-2.5 bg-slate-950/60 rounded-lg border border-surface-border">
+              <span className="text-[11px] text-slate-400 block">Workload Variance (σ²)</span>
+              <span className="text-base font-bold text-indigo-400">
+                {proposal.quality_report.interviewer_workload_variance}
+              </span>
+              <span className="text-[10px] text-slate-500 ml-1.5">
+                (load {proposal.quality_report.min_interviewer_load}-{proposal.quality_report.max_interviewer_load})
+              </span>
+            </div>
+
+            <div className="p-2.5 bg-slate-950/60 rounded-lg border border-surface-border">
+              <span className="text-[11px] text-slate-400 block">Room Utilization</span>
+              <span className="text-base font-bold text-sky-400">
+                {proposal.quality_report.room_utilization_percent}%
+              </span>
+            </div>
+
+            <div className="p-2.5 bg-slate-950/60 rounded-lg border border-surface-border">
+              <span className="text-[11px] text-slate-400 block">Avg Candidate Wait</span>
+              <span className="text-base font-bold text-amber-400">
+                {proposal.quality_report.average_candidate_wait_hours} hr
+              </span>
+            </div>
+          </div>
+          {proposal.quality_report.violation_details.length > 0 && (
+            <ul className="mt-3 space-y-1 text-xs text-amber-200">
+              {proposal.quality_report.violation_details.map((detail, index) => (
+                <li key={`${index}-${detail}`}>{detail}</li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       {/* View Switcher & Days Navigation */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

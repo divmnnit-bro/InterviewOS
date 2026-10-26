@@ -14,6 +14,7 @@ EXPECTED_TABLES = {
     "recruitment_drives", "interview_stages", "drive_candidates",
     "availabilities", "interviews", "panel_assignments",
     "evaluations", "audit_events", "notifications", "room_availabilities",
+    "jobs", "ai_interview_kits",
 }
 
 
