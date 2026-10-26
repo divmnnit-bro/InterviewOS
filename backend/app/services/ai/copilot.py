@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AuditEvent,
     Candidate,
     DriveCandidate,
     DriveCandidateStatus,
@@ -34,6 +35,7 @@ from app.schemas.ai import (
     CodingQuestion,
     DriveBriefResponse,
     InterviewKitRequest,
+    InterviewKitDraftUpdate,
     InterviewKitResponse,
     MissingFeedbackItem,
     RoundEvaluationSummary,
@@ -156,7 +158,6 @@ def generate_interview_kit(
             "topic": topic,
             "difficulty": req.difficulty,
             "required_skills": required_skills,
-            "job_description": req.job_description,
             "stage_name": stage_name,
         }
         job = enqueue_job(db, "ai_interview_kit", payload, creator_id=actor_id)
@@ -176,11 +177,19 @@ def generate_interview_kit(
 
     # Synchronous generation
     provider = get_llm_provider()
+    local_job_context = (
+        f"\nLocal-only role description context: {req.job_description.strip()}"
+        if provider.name == "deterministic" and req.job_description and req.job_description.strip()
+        else ""
+    )
     prompt = (
         f"Generate a technical interview kit for role: '{topic}' with required skills: {', '.join(required_skills) or 'General Software Engineering'}.\n"
         f"Target difficulty level: {req.difficulty}.\n"
-        f"Job description details: {req.job_description or 'Senior Full-Stack / Backend Engineer'}.\n"
-        "Include production-grade coding problems with edge cases, system design scenarios, and evaluation rubrics."
+        f"{local_job_context}\n"
+        "Use any local-only role description context only with the deterministic local provider; never include it in an external provider prompt. "
+        "Do not request or use candidate information. Generate reviewed draft material only. "
+        "Include coding problems with examples and edge cases, system-design scenarios, behavioral competencies, "
+        "difficulty-labeled MCQs with answer keys and explanations, competency coverage, follow-up questions, and scoring rubrics."
     )
 
     generation_provider = provider
@@ -201,6 +210,8 @@ def generate_interview_kit(
         coding_challenges=[q.model_dump() for q in kit_res.coding_questions],
         system_design_scenarios=[s.model_dump() for s in kit_res.system_design_scenarios],
         behavioral_questions=[b.model_dump() for b in kit_res.behavioral_questions],
+        multiple_choice_questions=[q.model_dump() for q in kit_res.multiple_choice_questions],
+        competencies_to_assess=kit_res.competencies_to_assess,
         rubric_template=kit_res.rubric_template,
         provider_used=generation_provider.name,
         model_used=getattr(generation_provider, "model", "local"),
@@ -221,6 +232,64 @@ def generate_interview_kit(
     return kit_res
 
 
+def update_interview_kit_draft(
+    db: Session,
+    kit_id: uuid.UUID,
+    draft: InterviewKitDraftUpdate,
+    *,
+    actor_id: uuid.UUID,
+) -> InterviewKitResponse:
+    """Persist coordinator edits to an interview kit before it is used."""
+    row = db.get(AIInterviewKit, kit_id)
+    if not row:
+        raise NotFound("Interview kit not found")
+
+    row.topic = draft.topic.strip()
+    row.difficulty = draft.difficulty
+    row.coding_challenges = [question.model_dump() for question in draft.coding_questions]
+    row.system_design_scenarios = [scenario.model_dump() for scenario in draft.system_design_scenarios]
+    row.behavioral_questions = [question.model_dump() for question in draft.behavioral_questions]
+    row.multiple_choice_questions = [question.model_dump() for question in draft.multiple_choice_questions]
+    row.competencies_to_assess = draft.competencies_to_assess
+    row.rubric_template = draft.rubric_template
+    db.add(AuditEvent(
+        actor_id=actor_id,
+        action="ai.kit.update",
+        entity_type="ai_interview_kit",
+        entity_id=row.id,
+        details={
+            "coding_question_count": len(draft.coding_questions),
+            "system_design_count": len(draft.system_design_scenarios),
+            "behavioral_question_count": len(draft.behavioral_questions),
+            "multiple_choice_count": len(draft.multiple_choice_questions),
+        },
+    ))
+    try:
+        db.commit()
+        db.refresh(row)
+    except Exception:
+        db.rollback()
+        raise
+
+    stage = db.get(InterviewStage, row.stage_id) if row.stage_id else None
+    return InterviewKitResponse(
+        kit_id=row.id,
+        drive_id=row.drive_id,
+        stage_name=stage.name if stage else None,
+        topic=row.topic,
+        difficulty=row.difficulty,
+        coding_questions=[CodingQuestion.model_validate(q) for q in row.coding_challenges],
+        system_design_scenarios=[SystemDesignScenario.model_validate(s) for s in row.system_design_scenarios],
+        behavioral_questions=[BehavioralQuestion.model_validate(q) for q in row.behavioral_questions],
+        multiple_choice_questions=[MultipleChoiceQuestion.model_validate(q) for q in row.multiple_choice_questions],
+        competencies_to_assess=row.competencies_to_assess,
+        rubric_template=row.rubric_template,
+        provider_used=row.provider_used,
+        model_used=row.model_used,
+        is_ai_generated=row.provider_used != "deterministic",
+    )
+
+
 def _async_kit_handler(job_id: uuid.UUID, payload: dict[str, Any], update_progress) -> dict[str, Any]:
     """Background task executor for AI interview kit generation."""
     update_progress(20, "Extracting drive context and skills...")
@@ -234,7 +303,12 @@ def _async_kit_handler(job_id: uuid.UUID, payload: dict[str, Any], update_progre
     update_progress(50, "Generating coding questions, scenarios, and rubrics...")
     provider = get_llm_provider()
     generation_provider = provider
-    prompt = f"Role: {topic}, Difficulty: {difficulty}, Skills: {', '.join(skills)}"
+    prompt = (
+        f"Generate a reviewed technical interview draft for role: {topic}, difficulty: {difficulty}, "
+        f"skills: {', '.join(skills) or 'General Software Engineering'}. Include coding problems, "
+        "system design, behavioral competencies, answer-keyed MCQs, explanations, follow-ups, and rubrics. "
+        "Do not request or use candidate data or raw job-description text."
+    )
     try:
         kit_res = provider.generate_structured(prompt, InterviewKitResponse)
     except Exception as exc:
@@ -254,6 +328,8 @@ def _async_kit_handler(job_id: uuid.UUID, payload: dict[str, Any], update_progre
             coding_challenges=[q.model_dump() for q in kit_res.coding_questions],
             system_design_scenarios=[s.model_dump() for s in kit_res.system_design_scenarios],
             behavioral_questions=[b.model_dump() for b in kit_res.behavioral_questions],
+            multiple_choice_questions=[q.model_dump() for q in kit_res.multiple_choice_questions],
+            competencies_to_assess=kit_res.competencies_to_assess,
             rubric_template=kit_res.rubric_template,
             provider_used=generation_provider.name,
             model_used=getattr(generation_provider, "model", "local"),
@@ -484,15 +560,18 @@ def generate_candidate_summary(
 
     round_summaries: list[RoundEvaluationSummary] = []
     all_scores: list[float] = []
-    all_feedbacks: list[str] = []
+    rubric_scores: dict[str, tuple[str, list[float]]] = {}
 
     for iv in interviews:
         stage = iv.stage
         for ev in iv.evaluations:
             score_float = float(ev.score)
             all_scores.append(score_float)
-            if ev.feedback:
-                all_feedbacks.append(ev.feedback)
+            for criterion, rating in (ev.rubric or {}).items():
+                key = str(criterion).strip().casefold()
+                if key:
+                    label, values = rubric_scores.setdefault(key, (str(criterion).strip(), []))
+                    values.append(float(rating))
             iv_user = db.get(User, ev.interviewer_id)
             round_summaries.append(
                 RoundEvaluationSummary(
@@ -507,54 +586,49 @@ def generate_candidate_summary(
 
     avg_score = round(sum(all_scores) / len(all_scores), 2) if all_scores else None
 
-    # Derive strengths & weaknesses from feedback text and scores
-    strengths = []
-    weaknesses = []
-
-    if avg_score is not None:
-        if avg_score >= 8.0:
-            strengths.append("Consistently high evaluator scores across all assessed technical domains")
-        elif avg_score >= 6.5:
-            strengths.append("Meets or exceeds minimum progression criteria across core rounds")
-        else:
-            weaknesses.append("Average evaluation score is currently below target threshold for final offer")
-
-    for fb in all_feedbacks:
-        fb_lower = fb.lower()
-        if "clean" in fb_lower or "algorithm" in fb_lower or "optimal" in fb_lower or "strong" in fb_lower:
-            strengths.append(f"Evaluator note: '{fb[:120]}...'")
-        if "slow" in fb_lower or "struggled" in fb_lower or "improve" in fb_lower or "edge case" in fb_lower:
-            weaknesses.append(f"Growth area: '{fb[:120]}...'")
-
-    if not strengths:
-        strengths.append("Participated in all scheduled technical rounds.")
-    if not weaknesses:
-        weaknesses.append("No major red flags noted in interviewer scorecards.")
-
-    # Deduplicate
-    strengths = list(dict.fromkeys(strengths))[:5]
-    weaknesses = list(dict.fromkeys(weaknesses))[:5]
+    # Report only measured rubric categories. Free-text feedback is shown in the
+    # scorecards themselves and is not interpreted into unsupported claims here.
+    ranked_rubrics = sorted(
+        (
+            (label, sum(values) / len(values), len(values))
+            for label, values in rubric_scores.values()
+            if values
+        ),
+        key=lambda item: item[1],
+    )
+    weaknesses = [
+        f"Lowest-rated rubric area: {label} ({score:.2f}/10 across {count} rating(s))."
+        for label, score, count in ranked_rubrics[:3]
+    ] if len(ranked_rubrics) > 1 else []
+    strengths = [
+        f"Highest-rated rubric area: {label} ({score:.2f}/10 across {count} rating(s))."
+        for label, score, count in reversed(ranked_rubrics[-3:])
+    ]
 
     # Current stage name
     current_stage = db.get(InterviewStage, cand_enrollment.current_stage_id) if cand_enrollment.current_stage_id else None
 
-    # Progression recommendation synthesis
+    # State only the coordinator's recorded pipeline status and measured scores.
     if cand_enrollment.status == DriveCandidateStatus.SELECTED:
-        readiness = "Selected: Passed all drive interview stages."
-        rec_synthesis = f"{cand_name} demonstrated exemplary technical and problem-solving capability across all rounds, earning final selection."
+        readiness = "Selected: the coordinator recorded a final selection."
+        decision = "Coordinator-recorded outcome: selected."
     elif cand_enrollment.status == DriveCandidateStatus.REJECTED:
-        readiness = "Not Selected: Candidate did not meet the progression threshold for advancement."
-        rec_synthesis = f"{cand_name} did not meet the threshold criteria in stage '{current_stage.name if current_stage else 'assessment'}'."
+        readiness = f"Not selected: the coordinator recorded this outcome for '{current_stage.name if current_stage else 'the current stage'}'."
+        decision = "Coordinator-recorded outcome: not selected."
+    elif cand_enrollment.status == DriveCandidateStatus.WITHDRAWN:
+        readiness = "Withdrawn: the candidate's enrollment is marked withdrawn."
+        decision = "Enrollment status: withdrawn."
     else:
-        if avg_score and avg_score >= 7.0:
-            readiness = f"Recommended to Advance to Stage: '{current_stage.name if current_stage else 'Next Round'}'."
-            rec_synthesis = f"Strong performance with an average score of {avg_score}/10. Candidate shows consistent technical mastery."
-        elif avg_score:
-            readiness = "Requires Coordinator Review: Borderline performance requiring panel discussion."
-            rec_synthesis = f"Candidate achieved an average score of {avg_score}/10. Review detailed scorecard feedback prior to decision."
-        else:
-            readiness = "Pending Interviews: Candidate is currently active in the interview schedule."
-            rec_synthesis = "Evaluations are still in progress. Final progression synthesis will update upon scorecard submission."
+        current_label = f" Current stage: {current_stage.name}." if current_stage else " No current stage is assigned."
+        readiness = f"Active in the pipeline; coordinator decision pending.{current_label}"
+        decision = "Coordinator progression decision is pending."
+
+    score_summary = (
+        f"{len(round_summaries)} evaluator scorecard(s) were submitted; the arithmetic mean score is {avg_score:.2f}/10."
+        if avg_score is not None
+        else "No evaluator scorecards have been submitted."
+    )
+    rec_synthesis = f"{score_summary} {decision}"
 
     return CandidateSummaryResponse(
         candidate_id=candidate_id,
@@ -571,7 +645,7 @@ def generate_candidate_summary(
         recurring_weaknesses=weaknesses,
         recommendation_synthesis=rec_synthesis,
         progression_readiness=readiness,
-        disclaimer="AI-generated synthesis of human evaluations. Human coordinator retains final decision authority.",
+        disclaimer="Rule-based summary of recorded scorecards and coordinator pipeline status. The human coordinator owns all hiring decisions.",
         provider_used="deterministic",
         is_ai_generated=False,
     )

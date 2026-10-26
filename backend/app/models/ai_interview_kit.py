@@ -38,6 +38,8 @@ class AIInterviewKit(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     coding_challenges: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     system_design_scenarios: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     behavioral_questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    multiple_choice_questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    competencies_to_assess: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     rubric_template: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     provider_used: Mapped[str] = mapped_column(String(64), nullable=False, default="deterministic")
     model_used: Mapped[str] = mapped_column(String(64), nullable=False, default="local")

@@ -6,6 +6,8 @@ export interface CodingQuestion {
   sample_inputs_outputs: Array<{ input: string; output: string; explanation?: string }>;
   expected_concepts: string[];
   edge_cases: string[];
+  competencies_to_assess: string[];
+  follow_up_questions: string[];
   evaluation_rubric: Record<string, string>;
 }
 
@@ -15,14 +17,28 @@ export interface SystemDesignScenario {
   functional_requirements: string[];
   non_functional_requirements: string[];
   scalability_concerns: string[];
+  competencies_to_assess: string[];
+  follow_up_questions: string[];
   evaluation_criteria: Record<string, string>;
 }
 
 export interface BehavioralQuestion {
   question: string;
   competency: string;
+  situation_guidance: string;
+  evaluation_rubric: string;
   expected_indicators: string[];
   red_flags: string[];
+  follow_up_questions: string[];
+}
+
+export interface MultipleChoiceQuestion {
+  question: string;
+  competency: string;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  options: string[];
+  correct_answer_index: number;
+  explanation: string;
 }
 
 export interface RubricTemplate {
@@ -47,6 +63,8 @@ export interface InterviewKitResponse {
   coding_questions: CodingQuestion[];
   system_design_scenarios: SystemDesignScenario[];
   behavioral_questions: BehavioralQuestion[];
+  multiple_choice_questions: MultipleChoiceQuestion[];
+  competencies_to_assess: string[];
   rubric_template: RubricTemplate;
 }
 

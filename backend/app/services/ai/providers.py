@@ -172,6 +172,11 @@ class DeterministicLocalProvider(BaseLLMProvider):
                         "High clock skew across distributed producers",
                         "Burst of millions of duplicate IDs within the same millisecond",
                     ],
+                    "competencies_to_assess": ["Data structures", "Concurrency", "Time-space tradeoffs"],
+                    "follow_up_questions": [
+                        "How would you change the design if event timestamps can arrive out of order?",
+                        "What consistency guarantees would you provide across multiple service instances?",
+                    ],
                     "evaluation_rubric": {
                         "correctness": "30% - Correct deduplication within sliding window",
                         "memory_efficiency": "30% - Timely eviction of expired keys without unbounded growth",
@@ -193,6 +198,11 @@ class DeterministicLocalProvider(BaseLLMProvider):
                     ],
                     "expected_concepts": ["Token Bucket", "Condition Variables", "Exponential Backoff", "Idempotency"],
                     "edge_cases": ["Transient 429 Too Many Requests response", "Queue empty during refill", "Process SIGINT during task dispatch"],
+                    "competencies_to_assess": ["Concurrency", "Rate limiting", "Failure recovery"],
+                    "follow_up_questions": [
+                        "How would you prevent retries from executing a task twice?",
+                        "What metrics would reveal starvation or a sustained backlog?",
+                    ],
                     "evaluation_rubric": {
                         "algorithm": "Token bucket mathematical precision",
                         "error_resilience": "Retry handling with jitter and circuit breaking",
@@ -224,6 +234,11 @@ class DeterministicLocalProvider(BaseLLMProvider):
                         "architecture_tiering": "Clear separation between API gateway, OR-Tools solver worker, and Postgres datastore",
                         "fault_tolerance": "Handling worker crash during schedule calculation without losing drive state",
                     },
+                    "competencies_to_assess": ["Distributed systems", "Scheduling", "Database concurrency"],
+                    "follow_up_questions": [
+                        "How would you recover if a worker crashes after saving a proposal but before reporting completion?",
+                        "How would you explain an infeasible schedule to a coordinator?",
+                    ],
                 }
             ],
             "behavioral_questions": [
@@ -232,14 +247,39 @@ class DeterministicLocalProvider(BaseLLMProvider):
                     "competency": "Crisis Management & Ownership",
                     "situation_guidance": "Candidate should use STAR format (Situation, Task, Action, Result) focusing on root-cause analysis rather than finger-pointing.",
                     "evaluation_rubric": "High: Clear incident triage, blameless post-mortem, permanent regression fix. Medium: Fixed issue but poor communication. Low: Blamed third party without containment.",
+                    "expected_indicators": ["Prioritizes impact and containment", "Communicates status clearly", "Adds a preventive follow-up"],
+                    "red_flags": ["Blames others without describing actions", "Cannot explain impact or follow-up"],
+                    "follow_up_questions": ["What did you learn from the incident?", "How did you verify the permanent fix?"],
                 },
                 {
                     "question": "Tell me about a time you had a technical disagreement with a senior architect regarding system design. How did you reach consensus?",
                     "competency": "Constructive Collaboration & Technical Humility",
                     "situation_guidance": "Look for objective benchmarking, prototyping, and willingness to disagree and commit.",
                     "evaluation_rubric": "High: Used data/benchmarks to drive alignment. Medium: Yielded without debate. Low: Conflict escalation without resolution.",
+                    "expected_indicators": ["Explains the technical tradeoff", "Seeks evidence", "Describes how the team reached a decision"],
+                    "red_flags": ["Treats disagreement as personal conflict", "Cannot explain the chosen tradeoff"],
+                    "follow_up_questions": ["What evidence changed or confirmed your view?", "How did you support the final decision?"],
                 },
             ],
+            "multiple_choice_questions": [
+                {
+                    "question": "For a hash table with well-distributed keys, what is the expected average lookup complexity?",
+                    "competency": "Data structures",
+                    "difficulty": diff,
+                    "options": ["O(1)", "O(log n)", "O(n)", "O(n log n)"],
+                    "correct_answer_index": 0,
+                    "explanation": "With well-distributed hashes, lookup is constant time on average; worst-case collisions can still make it O(n).",
+                },
+                {
+                    "question": "A client retries an interview booking after a timeout. What best prevents the retry from creating a duplicate booking?",
+                    "competency": "API reliability",
+                    "difficulty": diff,
+                    "options": ["Create a new booking on every retry", "Check an idempotency key atomically with the booking", "Wait one second before retrying", "Disable database constraints"],
+                    "correct_answer_index": 1,
+                    "explanation": "Checking and recording the same idempotency key in the booking transaction makes repeated requests safe.",
+                },
+            ],
+            "competencies_to_assess": ["Problem solving", "Data structures", "Concurrency", "Reliability", "Communication"],
             "rubric_template": {
                 "categories": [
                     {"name": "Technical Problem Solving", "weight": 0.35, "max_score": 10},
