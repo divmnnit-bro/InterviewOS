@@ -120,6 +120,7 @@ export const App: React.FC = () => {
                         <Suspense fallback={<PageFallback />}>
                           <Routes>
                             <Route path="" element={<CandidateDashboard />} />
+                            <Route path="interviews" element={<CandidateDashboard focusProgress />} />
                             <Route path="availability" element={<CandidateAvailabilityPage />} />
                             <Route path="*" element={<CandidateDashboard />} />
                           </Routes>

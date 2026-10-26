@@ -8,7 +8,6 @@ import {
   HelpCircle,
   Settings2,
   Trash2,
-  Download,
   Send,
   Building,
   User as UserIcon,
@@ -23,6 +22,7 @@ import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { CalendarDownloadButton } from './CalendarDownloadButton';
 import { Spinner } from '../ui/Spinner';
 import { EmptyState } from '../ui/EmptyState';
 import { FormField } from '../ui/FormField';
@@ -648,16 +648,13 @@ export const ScheduleConsole: React.FC<ScheduleConsoleProps> = ({
                                 <div className="flex items-center justify-between text-[11px] font-semibold text-indigo-200 truncate leading-tight">
                                   <span className="truncate">{iv.candidateName}</span>
                                   {!iv.isProposal && (
-                                    <a
-                                      href={`${apiClient.getBaseUrl()}/interviews/${iv.id}/ics`}
-                                      target="_blank"
-                                      rel="noreferrer"
+                                    <CalendarDownloadButton
+                                      interviewId={iv.id}
+                                      label=""
+                                      variant="ghost"
+                                      className="!p-0.5 text-slate-400 hover:text-white"
                                       onClick={(e) => e.stopPropagation()}
-                                      className="text-slate-400 hover:text-white p-0.5"
-                                      title="Download .ics"
-                                    >
-                                      <Download className="w-2.5 h-2.5" />
-                                    </a>
+                                    />
                                   )}
                                 </div>
                                 <div className="flex items-center justify-between text-[9px] text-slate-300/80 truncate">
@@ -798,15 +795,12 @@ export const ScheduleConsole: React.FC<ScheduleConsoleProps> = ({
                         </td>
                         <td className="px-5 py-3.5 text-right">
                           {!iv.isProposal && (
-                            <a
-                              href={`${apiClient.getBaseUrl()}/interviews/${iv.id}/ics`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 font-medium"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              .ics
-                            </a>
+                            <CalendarDownloadButton
+                              interviewId={iv.id}
+                              label=".ics"
+                              variant="ghost"
+                              className="text-indigo-400 hover:text-indigo-300"
+                            />
                           )}
                         </td>
                       </tr>
