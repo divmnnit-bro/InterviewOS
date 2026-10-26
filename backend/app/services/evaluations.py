@@ -88,6 +88,17 @@ def submit_evaluation(
         if decision_recorded(db, iv):
             raise EvaluationLocked("the candidate's result for this round is recorded; feedback is locked")
 
+        if iv.stage:
+            from app.models import DriveCandidate, DriveCandidateStatus
+            cand_enr = db.scalar(
+                select(DriveCandidate).where(
+                    DriveCandidate.drive_id == iv.stage.drive_id,
+                    DriveCandidate.candidate_id == iv.candidate_id,
+                )
+            )
+            if cand_enr and cand_enr.status in (DriveCandidateStatus.REJECTED, DriveCandidateStatus.WITHDRAWN):
+                raise Conflict(f"candidate is {cand_enr.status.value}; cannot evaluate")
+
         score = payload.overall_score()
         existing = db.scalars(
             select(Evaluation).where(
@@ -127,6 +138,10 @@ def submit_evaluation(
             },
         ))
         db.commit()
+
+        from app.services.analytics import invalidate_analytics_cache
+        invalidate_analytics_cache(iv.stage.drive_id if iv.stage else None)
+
         return evaluation, created
     except Exception:
         db.rollback()

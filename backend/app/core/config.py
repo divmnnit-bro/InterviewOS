@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     SCHEDULER_MAX_TIME_LIMIT_SECONDS: float = 60.0
     SCHEDULER_MAX_WORKERS: int = 8
 
+    # Redis for background jobs and caching
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # AI Recruitment Copilot
+    AI_PROVIDER: str = "deterministic"  # Supported providers: "deterministic" and "openai"
+    AI_MODEL: str = "gpt-4o-mini"
+    AI_API_KEY: str | None = None
+    AI_API_BASE: str | None = None
+    AI_REQUEST_TIMEOUT_SECONDS: float = 30.0
+
+    # Rate limiting
+    RATE_LIMIT_PER_MINUTE: int = 120
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )

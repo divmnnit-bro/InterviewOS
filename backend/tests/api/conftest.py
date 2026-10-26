@@ -112,3 +112,12 @@ def drive(client, coordinator):
         cands.append(u["id"])
     assert client.post(f"/drives/{did}/candidates", headers=h, json={"candidate_ids": cands}).status_code == 201
     return {"id": did, "room": room["id"], "candidates": cands, "headers": h}
+
+
+@pytest.fixture()
+def published(client, drive):
+    h, did = drive["headers"], drive["id"]
+    assert client.post(f"/drives/{did}/schedule/propose", headers=h).status_code == 200
+    r = client.post(f"/drives/{did}/schedule/publish", headers=h, json={"expected_version": 0})
+    assert r.status_code == 200, r.text
+    return drive

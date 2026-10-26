@@ -183,6 +183,8 @@ def advance_candidate(
             },
         ))
         db.commit()
+        from app.services.analytics import invalidate_analytics_cache
+        invalidate_analytics_cache(drive_id)
         return DecisionOut(
             drive_id=drive_id, candidate_id=candidate_id, outcome=outcome, status=enrollment.status,
             from_stage_id=stage.id, current_stage_id=enrollment.current_stage_id,
@@ -215,6 +217,8 @@ def reject_candidate(
             },
         ))
         db.commit()
+        from app.services.analytics import invalidate_analytics_cache
+        invalidate_analytics_cache(drive_id)
         return DecisionOut(
             drive_id=drive_id, candidate_id=candidate_id, outcome="rejected", status=enrollment.status,
             from_stage_id=stage.id, current_stage_id=enrollment.current_stage_id,

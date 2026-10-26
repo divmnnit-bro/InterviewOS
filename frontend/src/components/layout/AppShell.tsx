@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Layers,
   LayoutDashboard,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { NotificationBell } from './NotificationBell';
@@ -64,6 +65,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       return [
         { label: 'Overview', href: '/coordinator', icon: <LayoutDashboard className="w-4 h-4" /> },
         { label: 'Drives', href: '/coordinator/drives', icon: <Layers className="w-4 h-4" /> },
+        { label: 'AI Copilot', href: '/coordinator/ai-copilot', icon: <Sparkles className="w-4 h-4 text-indigo-400" /> },
+        { label: 'Analytics', href: '/coordinator/analytics', icon: <BarChart3 className="w-4 h-4 text-emerald-400" /> },
         { label: 'People', href: '/coordinator/people', icon: <Users className="w-4 h-4" /> },
         { label: 'Rooms', href: '/coordinator/rooms', icon: <Building className="w-4 h-4" /> },
       ];

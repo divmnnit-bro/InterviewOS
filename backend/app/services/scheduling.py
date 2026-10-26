@@ -269,6 +269,16 @@ def build_schedule_input(
         for b in busy
     )
 
+    from app.scheduler.types import Weights
+    w_kwargs = {}
+    if getattr(options, "earliness_weight", None) is not None:
+        w_kwargs["earliness"] = options.earliness_weight
+    if getattr(options, "load_balance_weight", None) is not None:
+        w_kwargs["load_balance"] = options.load_balance_weight
+    if getattr(options, "room_fit_weight", None) is not None:
+        w_kwargs["room_fit"] = options.room_fit_weight
+    weights = Weights(**w_kwargs) if w_kwargs else Weights()
+
     config = SchedulerConfig(
         horizon_start=h0,
         horizon_end=h1,
@@ -280,6 +290,7 @@ def build_schedule_input(
         min_round_gap_minutes=(
             drive.min_round_gap_minutes if options.min_round_gap_minutes is None
             else options.min_round_gap_minutes),
+        weights=weights,
         time_limit_seconds=min(options.time_limit_seconds, settings.SCHEDULER_MAX_TIME_LIMIT_SECONDS),
         workers=min(options.workers, settings.SCHEDULER_MAX_WORKERS),
     )

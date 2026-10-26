@@ -1,7 +1,19 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
-    auth, booking, drives, evaluations, interviews, me, pipeline, rescue, rooms, schedule,
+    ai,
+    analytics,
+    auth,
+    booking,
+    drives,
+    evaluations,
+    interviews,
+    jobs,
+    me,
+    pipeline,
+    rescue,
+    rooms,
+    schedule,
 )
 
 api_router = APIRouter()
@@ -15,3 +27,6 @@ api_router.include_router(booking.router)
 api_router.include_router(interviews.router)
 api_router.include_router(evaluations.router)
 api_router.include_router(pipeline.router)
+api_router.include_router(ai.router)
+api_router.include_router(analytics.router)
+api_router.include_router(jobs.router)

@@ -63,6 +63,9 @@ class InterviewStage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     rule: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=lambda: dict(DEFAULT_PASS_RULE)
     )
+    rubric_template: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
 
     drive: Mapped[RecruitmentDrive] = relationship(back_populates="stages")
     interviews: Mapped[list[Interview]] = relationship(back_populates="stage")

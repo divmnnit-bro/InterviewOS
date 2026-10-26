@@ -186,6 +186,8 @@ class SolveStatus(str, Enum):
     FEASIBLE = "feasible"      # valid, time limit hit before proof
     HEURISTIC = "heuristic"    # solver ran out of time; this is the quick first-fit schedule
     NOTHING_TO_SCHEDULE = "nothing_to_schedule"
+    INFEASIBLE = "infeasible"  # model has zero feasible placements
+    TIMEOUT = "timeout"        # solver timed out
     UNKNOWN = "unknown"        # time limit hit with no solution
 
 

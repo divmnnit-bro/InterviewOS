@@ -23,6 +23,8 @@ const RoomAvailabilityPage = React.lazy(() => import('./pages/coordinator/RoomAv
 const UserAvailabilityPage = React.lazy(() => import('./pages/coordinator/UserAvailabilityPage').then((m) => ({ default: m.UserAvailabilityPage })));
 const DrivesPage = React.lazy(() => import('./pages/coordinator/DrivesPage').then((m) => ({ default: m.DrivesPage })));
 const DriveDetailPage = React.lazy(() => import('./pages/coordinator/DriveDetailPage').then((m) => ({ default: m.DriveDetailPage })));
+const AICopilotPage = React.lazy(() => import('./pages/coordinator/AICopilotPage').then((m) => ({ default: m.AICopilotPage })));
+const AnalyticsDashboardPage = React.lazy(() => import('./pages/coordinator/AnalyticsDashboardPage').then((m) => ({ default: m.AnalyticsDashboardPage })));
 
 // Candidate Pages
 const CandidateDashboard = React.lazy(() => import('./pages/candidate/CandidateDashboard').then((m) => ({ default: m.CandidateDashboard })));
@@ -99,6 +101,8 @@ export const App: React.FC = () => {
                             <Route path="drives" element={<DrivesPage />} />
                             <Route path="drives/new" element={<DrivesPage />} />
                             <Route path="drives/:driveId" element={<DriveDetailPage />} />
+                            <Route path="ai-copilot" element={<AICopilotPage />} />
+                            <Route path="analytics" element={<AnalyticsDashboardPage />} />
                             <Route path="*" element={<CoordinatorDashboard />} />
                           </Routes>
                         </Suspense>

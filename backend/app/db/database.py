@@ -1,6 +1,7 @@
 from collections.abc import Generator
 
 from sqlalchemy import MetaData, create_engine
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -21,8 +22,21 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
+def normalize_database_url(database_url: str) -> URL:
+    """Select the installed psycopg v3 driver for standard Postgres URLs.
+
+    Managed database providers commonly expose ``postgres://`` or
+    ``postgresql://`` URLs. SQLAlchemy otherwise defaults those to psycopg2,
+    which this project does not install.
+    """
+    url = make_url(database_url)
+    if url.drivername in {"postgres", "postgresql"}:
+        url = url.set(drivername="postgresql+psycopg")
+    return url
+
+
 engine = create_engine(
-    settings.DATABASE_URL,
+    normalize_database_url(settings.DATABASE_URL),
     pool_pre_ping=True,  # drop dead connections instead of failing a request
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,

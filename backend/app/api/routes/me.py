@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_roles
 from app.db.database import get_db
 from app.models import (
     Candidate,
@@ -95,11 +95,9 @@ def my_interviews(
 @router.get("/progress", response_model=list[CandidateDriveProgressOut])
 def my_progress(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_roles(UserRole.CANDIDATE)),
 ) -> list[CandidateDriveProgressOut]:
     """Returns candidate's enrolment status and round results ONLY (never scores or feedback)."""
-    if user.role != UserRole.CANDIDATE:
-        return []
 
     enrollments = list(
         db.scalars(

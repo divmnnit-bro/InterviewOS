@@ -63,8 +63,8 @@ EXPOSE 8000
 # /health is public and does not touch the database, so it reports "the process is up".
 # start-period covers the migration step that runs before Uvicorn starts.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+    CMD ["python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT','8000') + '/health', timeout=4)"]
 
 # `exec` replaces the shell with Uvicorn, so Uvicorn becomes PID 1 and receives SIGTERM directly.
 # If the migration fails, the container exits non-zero instead of serving an unmigrated schema.
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
