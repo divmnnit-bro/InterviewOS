@@ -97,3 +97,29 @@ def test_stages_are_locked_after_publish(client, drive):
     r = client.post(f"/drives/{did}/stages", headers=h, json={
         "order_index": 2, "name": "HR", "stage_type": "hr", "duration_minutes": 20})
     assert r.status_code == 409
+
+
+def test_list_drive_interviews(client, drive):
+    h, did = drive["headers"], drive["id"]
+    # Before publish or proposal, interviews should be empty
+    r = client.get(f"/drives/{did}/interviews", headers=h)
+    assert r.status_code == 200
+    assert r.json() == []
+
+    # Propose and publish
+    client.post(f"/drives/{did}/schedule/propose", headers=h)
+    client.post(f"/drives/{did}/schedule/publish", headers=h, json={"expected_version": 0})
+
+    # Now we should see the published interviews
+    r = client.get(f"/drives/{did}/interviews", headers=h)
+    assert r.status_code == 200
+    interviews = r.json()
+    assert len(interviews) == 3
+    first = interviews[0]
+    assert first["drive_id"] == did
+    assert first["stage_name"] != ""
+    assert first["candidate_name"] != ""
+    assert first["status"] == "scheduled"
+    assert len(first["panel"]) == 1
+    assert "start_time" in first and "end_time" in first
+

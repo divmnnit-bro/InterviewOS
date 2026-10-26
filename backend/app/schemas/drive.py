@@ -116,3 +116,24 @@ class EnrollmentOut(ORMModel):
     candidate_id: uuid.UUID
     status: DriveCandidateStatus
     current_stage_id: uuid.UUID | None
+
+
+class PanelMemberOut(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class DriveInterviewDetailOut(BaseModel):
+    id: uuid.UUID
+    drive_id: uuid.UUID
+    stage_id: uuid.UUID
+    stage_name: str
+    candidate_id: uuid.UUID
+    candidate_name: str
+    room_id: uuid.UUID | None = None
+    room_name: str | None = None
+    panel: list[PanelMemberOut] = []
+    start_time: datetime
+    end_time: datetime
+    status: Any
+    version: int

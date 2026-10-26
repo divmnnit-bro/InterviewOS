@@ -42,3 +42,80 @@ def test_only_coordinators_create_interviewers(client, db, coordinator):
             "skills": ["python"], "capacity": 3}
     assert client.post("/users", json=body).status_code == 401
     assert client.post("/users", json=body, headers=coordinator).status_code == 201
+
+
+def test_list_users_filters_and_profiles(client, db, coordinator):
+    # Non-coordinators cannot access GET /users
+    make_user(db, "cand@example.com", UserRole.CANDIDATE)
+    cand_h = login(client, "cand@example.com")
+    assert client.get("/users", headers=cand_h).status_code == 403
+    assert client.get("/users").status_code == 401
+
+    # Create an interviewer and candidate with profiles
+    client.post("/users", headers=coordinator, json={
+        "name": "Alice Interviewer", "email": "alice.iv@example.com", "password": PASSWORD,
+        "role": "interviewer", "skills": ["python", "go"], "capacity": 5, "department": "Core"
+    })
+    client.post("/users", headers=coordinator, json={
+        "name": "Bob Candidate", "email": "bob.cand@example.com", "password": PASSWORD,
+        "role": "candidate", "roll_number": "CS-101", "branch": "CSE"
+    })
+
+    # Test list without filter
+    res = client.get("/users", headers=coordinator)
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) >= 3
+
+    # Test filter by role
+    iv_res = client.get("/users?role=interviewer", headers=coordinator)
+    assert iv_res.status_code == 200
+    ivs = iv_res.json()
+    assert any(u["email"] == "alice.iv@example.com" and "python" in u["skills"] and u["capacity"] == 5 for u in ivs)
+
+    cand_res = client.get("/users?role=candidate", headers=coordinator)
+    assert cand_res.status_code == 200
+    cands = cand_res.json()
+    assert any(u["email"] == "bob.cand@example.com" and u["roll_number"] == "CS-101" for u in cands)
+
+    # Test search q
+    q_res = client.get("/users?q=alice", headers=coordinator)
+    assert q_res.status_code == 200
+    assert len(q_res.json()) == 1
+    assert q_res.json()[0]["email"] == "alice.iv@example.com"
+
+
+def test_me_interviews_and_progress_isolation(client, db, coordinator):
+    # Create candidate and interviewer
+    make_user(db, "cand_prog@example.com", UserRole.CANDIDATE)
+    make_user(db, "iv_prog@example.com", UserRole.INTERVIEWER)
+    cand_h = login(client, "cand_prog@example.com")
+    iv_h = login(client, "iv_prog@example.com")
+
+    # 1. /me/interviews
+    cand_ivs = client.get("/me/interviews", headers=cand_h)
+    assert cand_ivs.status_code == 200
+    assert isinstance(cand_ivs.json(), list)
+
+    iv_ivs = client.get("/me/interviews", headers=iv_h)
+    assert iv_ivs.status_code == 200
+    assert isinstance(iv_ivs.json(), list)
+
+    # 2. /me/progress (Candidates only)
+    cand_prog = client.get("/me/progress", headers=cand_h)
+    assert cand_prog.status_code == 200
+    assert isinstance(cand_prog.json(), list)
+
+    # Candidate progress MUST NOT leak any scores, rubrics, or feedback
+    prog_json = cand_prog.json()
+    for item in prog_json:
+        assert "score" not in item
+        assert "feedback" not in item
+        assert "rubric" not in item
+        assert "evaluations" not in item
+
+    # Interviewer or coordinator cannot access /me/progress (403 Forbidden)
+    assert client.get("/me/progress", headers=iv_h).status_code == 403
+    assert client.get("/me/progress", headers=coordinator).status_code == 403
+
+

@@ -88,5 +88,20 @@ services:
     healthcheck:
       disable: true
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    image: interviewos-frontend:prod
+    container_name: interviewos-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
 volumes:
   interviewos-pgdata:
