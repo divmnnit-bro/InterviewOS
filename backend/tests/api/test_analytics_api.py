@@ -26,6 +26,20 @@ def test_analytics_overview(client, db, coordinator):
     assert "total_drives" in out
     assert "total_candidates_registered" in out
     assert "global_completion_rate" in out
+    assert "pending_evaluations_count" in out
+    assert isinstance(out["upcoming_interviews"], list)
+    assert isinstance(out["recent_activity"], list)
+    assert all("details" not in item for item in out["recent_activity"])
+
+
+def test_analytics_overview_accepts_drive_filter(client, db, coordinator):
+    response = client.get(
+        "/analytics/overview",
+        params={"drive_id": str(uuid.uuid4())},
+        headers=coordinator,
+    )
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json()["upcoming_interviews"], list)
 
 
 def test_drive_analytics(client, db, published, coordinator):

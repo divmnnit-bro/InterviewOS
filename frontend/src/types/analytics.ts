@@ -9,6 +9,18 @@ export interface AnalyticsOverview {
   global_completion_rate: number;
   total_evaluations_submitted: number;
   average_score_across_all_evaluations?: number | null;
+  pending_evaluations_count: number;
+  upcoming_interviews: Array<{
+    interview_id: string;
+    drive_id: string;
+    drive_title: string;
+    stage_name: string;
+    candidate_name: string;
+    room_name?: string | null;
+    start_time: string;
+    end_time: string;
+  }>;
+  recent_activity: Array<{ action: string; entity_type: string; timestamp: string }>;
   generated_at: string;
 }
 

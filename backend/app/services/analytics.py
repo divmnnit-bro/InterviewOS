@@ -30,9 +30,11 @@ from app.schemas.analytics import (
     DriveAnalyticsOut,
     InterviewerAnalyticsItem,
     InterviewersAnalyticsOut,
+    RecentActivityOut,
     StageAnalyticsItem,
     StageFunnelItem,
     StagesAnalyticsOut,
+    UpcomingInterviewOut,
 )
 from app.services.errors import NotFound
 from app.services.redis_service import cache_delete, cache_delete_pattern, cache_get, cache_set
@@ -43,15 +45,20 @@ def invalidate_analytics_cache(drive_id: uuid.UUID | None = None) -> None:
     cache_delete("analytics:overview")
     cache_delete("analytics:interviewers")
     if drive_id is not None:
+        cache_delete(f"analytics:overview:{drive_id}")
         cache_delete(f"analytics:drive:{drive_id}")
         cache_delete(f"analytics:stages:{drive_id}")
     else:
         cache_delete_pattern("analytics:*")
 
 
-def get_overview_analytics(db: Session, force_refresh: bool = False) -> AnalyticsOverviewOut:
+def get_overview_analytics(
+    db: Session,
+    force_refresh: bool = False,
+    drive_id: uuid.UUID | None = None,
+) -> AnalyticsOverviewOut:
     """Compute global recruitment platform analytics across all drives."""
-    cache_key = "analytics:overview"
+    cache_key = f"analytics:overview:{drive_id}" if drive_id else "analytics:overview"
     if not force_refresh:
         cached = cache_get(cache_key)
         if cached:
@@ -70,7 +77,12 @@ def get_overview_analytics(db: Session, force_refresh: bool = False) -> Analytic
     total_candidates_enrolled = db.scalar(select(func.count(DriveCandidate.candidate_id))) or 0
 
     # 3. Interviews
-    total_interviews = db.scalar(select(func.count(Interview.id))) or 0
+    reportable_interview_statuses = (
+        InterviewStatus.SCHEDULED, InterviewStatus.CONFIRMED, InterviewStatus.COMPLETED,
+    )
+    total_interviews = db.scalar(
+        select(func.count(Interview.id)).where(Interview.status.in_(reportable_interview_statuses))
+    ) or 0
     completed_interviews = db.scalar(
         select(func.count(Interview.id)).where(Interview.status == InterviewStatus.COMPLETED)
     ) or 0
@@ -86,6 +98,61 @@ def get_overview_analytics(db: Session, force_refresh: bool = False) -> Analytic
     scores = [float(e.score) for e in evals]
     avg_score = round(sum(scores) / len(scores), 2) if scores else None
 
+    # Count each active panel assignment that has not yet submitted feedback.
+    now = datetime.now(timezone.utc)
+    submitted_by_panelist = select(Evaluation.id).where(
+        Evaluation.interview_id == PanelAssignment.interview_id,
+        Evaluation.interviewer_id == PanelAssignment.interviewer_id,
+    ).exists()
+    pending_evaluations = db.scalar(
+        select(func.count()).select_from(PanelAssignment)
+        .join(Interview, Interview.id == PanelAssignment.interview_id)
+        .where(
+            PanelAssignment.is_active.is_(True),
+            Interview.start_time <= now,
+            Interview.status.in_((InterviewStatus.SCHEDULED, InterviewStatus.CONFIRMED, InterviewStatus.COMPLETED)),
+            ~submitted_by_panelist,
+        )
+    ) or 0
+
+    upcoming_query = select(Interview).join(InterviewStage, InterviewStage.id == Interview.stage_id).where(
+            Interview.status.in_((InterviewStatus.SCHEDULED, InterviewStatus.CONFIRMED)),
+            Interview.start_time >= now,
+        )
+    if drive_id is not None:
+        upcoming_query = upcoming_query.where(InterviewStage.drive_id == drive_id)
+    upcoming_rows = list(db.scalars(upcoming_query.order_by(Interview.start_time.asc()).limit(6)))
+    upcoming = []
+    for interview in upcoming_rows:
+        stage = interview.stage
+        drive = stage.drive if stage else None
+        candidate = interview.candidate.user if interview.candidate else None
+        if stage and drive and candidate:
+            upcoming.append(UpcomingInterviewOut(
+                interview_id=interview.id,
+                drive_id=drive.id,
+                drive_title=drive.title,
+                stage_name=stage.name,
+                candidate_name=candidate.name,
+                room_name=interview.room.name if interview.room else None,
+                start_time=interview.start_time,
+                end_time=interview.end_time,
+            ))
+
+    activity_rows = list(db.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.action.in_([
+            "schedule.publish", "schedule.rescue", "booking.confirm",
+            "evaluation.submit", "pipeline.advance", "pipeline.reject",
+        ]))
+        .order_by(AuditEvent.timestamp.desc())
+        .limit(6)
+    ))
+    recent_activity = [
+        RecentActivityOut(action=e.action, entity_type=e.entity_type, timestamp=e.timestamp)
+        for e in activity_rows
+    ]
+
     result = AnalyticsOverviewOut(
         total_drives=total_drives,
         active_drives=active_drives,
@@ -97,6 +164,9 @@ def get_overview_analytics(db: Session, force_refresh: bool = False) -> Analytic
         global_completion_rate=global_completion_rate,
         total_evaluations_submitted=total_evals,
         average_score_across_all_evaluations=avg_score,
+        pending_evaluations_count=int(pending_evaluations),
+        upcoming_interviews=upcoming,
+        recent_activity=recent_activity,
         generated_at=now_str,
     )
     cache_set(cache_key, result.model_dump(mode="json"), ttl_seconds=120)
